@@ -1,0 +1,41 @@
+{
+  "name": "internship-platform-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "start:local": "node node_modules/next/dist/bin/next dev"
+  },
+  "dependencies": {
+    "@ant-design/icons": "^5.2.6",
+    "@ant-design/nextjs-registry": "^1.1.0",
+    "@heroicons/react": "^2.2.0",
+    "@nestjs/typeorm": "^11.0.0",
+    "@types/bcryptjs": "^2.4.6",
+    "antd": "^5.10.2",
+    "axios": "^1.13.1",
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "jwt-decode": "^4.0.0",
+    "next": "14.0.0",
+    "next-auth": "^4.24.4",
+    "pg": "^8.16.3",
+    "react": "^18",
+    "react-dom": "^18",
+    "react-hook-form": "^7.65.0",
+    "typeorm": "^0.3.27"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/pg": "^8.15.5",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "^15.5.5",
+    "typescript": "^5"
+  }
+}

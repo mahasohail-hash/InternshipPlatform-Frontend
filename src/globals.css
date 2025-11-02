@@ -1,0 +1,50 @@
+/* internship-platform-frontend/src/styles/globals.css */
+@import '~antd/dist/reset.css'; /* Ant Design v5 reset styles */
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen,
+    Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
+  height: 100%; /* Ensure html and body take full height */
+}
+
+/* Ensure #__next (Next.js root) takes full height */
+#__next {
+  height: 100%;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Custom styles for Ant Design layout */
+.ant-layout-sider {
+  /* Override default Ant Design Sider background if needed, or stick to theme.dark */
+  background-color: #001529 !important; /* Ant Design dark theme default */
+}
+
+.ant-menu-dark.ant-menu-inline .ant-menu-item,
+.ant-menu-dark.ant-menu-inline .ant-menu-submenu-title {
+  color: rgba(255, 255, 255, 0.65); /* Default item color */
+}
+
+.ant-menu-dark.ant-menu-inline .ant-menu-item-selected {
+  background-color: #1890ff !important; /* Primary color for selected item */
+}
+
+.ant-menu-dark .ant-menu-item:hover,
+.ant-menu-dark .ant-menu-submenu-title:hover {
+  color: #fff !important; /* Hover text color */
+}
+
+/* For the logo div in Sider */
+.demo-logo-vertical {
+  transition: all 0.2s;
+}
