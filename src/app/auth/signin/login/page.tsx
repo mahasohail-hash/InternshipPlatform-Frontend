@@ -11,12 +11,15 @@ const { Title } = Typography;
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const error = searchParams.get('error'); // Get error from URL
+  const urlError = searchParams.get('error'); // Get error from URL (for external redirects)
 
   const [loading, setLoading] = useState(false);
+  const [form] = Form.useForm();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const onFinish = async (values: any) => {
     setLoading(true);
+    setErrorMessage(null); // Clear any previous errors
 
     // Use NextAuth's signIn function
     const result = await signIn('credentials', {
@@ -34,10 +37,12 @@ function LoginForm() {
       router.push('/'); // Redirect to root, middleware will handle /hr/dashboard, /mentor/dashboard etc.
       router.refresh(); // Force refresh to get new session
     } else {
-      // Failed login. Redirect back to login page with an error message.
-      // This uses the 'error' from your authOptions pages config or a custom error.
-      const errorMessage = result?.error || 'Invalid credentials. Please try again.';
-      router.replace(`/auth/login?error=${encodeURIComponent(errorMessage)}`);
+      // Failed login. Show error inline without redirecting
+      const error = result?.error || 'Invalid credentials. Please try again.';
+      setErrorMessage(error);
+      
+      // Clear the password field for security
+      form.setFieldsValue({ password: '' });
     }
   };
 
@@ -47,18 +52,37 @@ function LoginForm() {
         Internship Platform Login
       </Title>
 
-      {/* Show an error message if the URL contains one */}
-      {error && (
+      {/* Show an error message if the URL contains one (for external redirects) */}
+      {urlError && (
         <Alert
           message="Login Failed"
-          description={decodeURIComponent(error)}
+          description={decodeURIComponent(urlError)}
           type="error"
           showIcon
           style={{ marginBottom: 24 }}
+          closable
+          onClose={() => {
+            // Remove error from URL when closed
+            router.replace('/auth/signin/login');
+          }}
+        />
+      )}
+
+      {/* Show inline error message from form submission */}
+      {errorMessage && (
+        <Alert
+          message="Login Failed"
+          description={errorMessage}
+          type="error"
+          showIcon
+          style={{ marginBottom: 24 }}
+          closable
+          onClose={() => setErrorMessage(null)}
         />
       )}
 
       <Form
+        form={form}
         name="login_form"
         initialValues={{ remember: true }}
         onFinish={onFinish}

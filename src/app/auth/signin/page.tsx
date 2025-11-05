@@ -3,38 +3,43 @@
 // Keeping it for completeness but recommending consolidation.
 
 'use client';
-import { Form, Input, Button, Card, Typography, Space, notification } from 'antd';
+import { Form, Input, Button, Card, Typography, Space, notification, Alert } from 'antd';
 import { MailOutlined, LockOutlined, LoginOutlined } from '@ant-design/icons';
 import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 const { Title, Text } = Typography;
 
 export default function SignInPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const error = searchParams.get('error');
+    const urlError = searchParams.get('error');
+    const [form] = Form.useForm();
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
     useEffect(() => {
-        if (error) {
-            let errorMessage = "An unknown login error occurred.";
-            if (error === "CredentialsSignin") {
-                errorMessage = "Invalid email or password. Please try again.";
-            } else if (error.includes("Could not reach backend API")) {
-                errorMessage = "Network Error: Could not connect to the server (port 3001).";
+        if (urlError) {
+            let errorMsg = "An unknown login error occurred.";
+            if (urlError === "CredentialsSignin") {
+                errorMsg = "Invalid email or password. Please try again.";
+            } else if (urlError.includes("Could not reach backend API")) {
+                errorMsg = "Network Error: Could not connect to the server (port 3001).";
             } else {
-                errorMessage = decodeURIComponent(error); // Decode the error message
+                errorMsg = decodeURIComponent(urlError);
             }
+            setErrorMessage(errorMsg);
             notification.error({
                 message: "Login Failed",
-                description: errorMessage,
+                description: errorMsg,
                 duration: 5,
             });
         }
-    }, [error]);
+    }, [urlError]);
 
     const onFinish = async (values: any) => {
+        setErrorMessage(null); // Clear any previous errors
+        
         const result = await signIn('credentials', {
             redirect: false,
             email: values.email,
@@ -42,7 +47,10 @@ export default function SignInPage() {
         });
 
         if (result?.error) {
-            router.push(`/auth/login?error=${encodeURIComponent(result.error)}`); // Redirect to /auth/login
+            // Show error inline without redirecting
+            const error = result.error || 'Invalid credentials. Please try again.';
+            setErrorMessage(error);
+            form.setFieldsValue({ password: '' }); // Clear password field
         } else {
             router.push('/'); // Redirect to root, middleware handles dashboard
         }
@@ -55,7 +63,22 @@ export default function SignInPage() {
                     <Title level={3}>Internship Platform Login</Title>
                     <Text type="secondary">Sign in with your credentials.</Text>
                 </div>
+                
+                {/* Show inline error message */}
+                {errorMessage && (
+                    <Alert
+                        message="Login Failed"
+                        description={errorMessage}
+                        type="error"
+                        showIcon
+                        style={{ marginBottom: 24 }}
+                        closable
+                        onClose={() => setErrorMessage(null)}
+                    />
+                )}
+                
                 <Form
+                    form={form}
                     name="login_form"
                     initialValues={{ remember: true }}
                     onFinish={onFinish}

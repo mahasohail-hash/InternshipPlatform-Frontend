@@ -75,6 +75,6 @@ export default withAuth(
 // and correctly ignores all public/api/static routes.
 export const config = {
   matcher: [
-    '/((?!api|_next/static|_next/image|auth/login|favicon.ico).*)', // CRITICAL FIX: Allow /auth/login to be public
+    '/((?!api|_next/static|_next/image|auth/login|auth/signin/login|favicon.ico).*)', // CRITICAL FIX: Allow /auth/login and /auth/signin/login to be public
   ],
 };

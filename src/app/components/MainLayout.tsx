@@ -55,7 +55,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
   // 1. Authentication Guard & Redirect
   useEffect(() => {
     // If not authenticated AND not on the login page, redirect to login.
-    if (status === 'unauthenticated' && pathname !== '/auth/login') {
+    const isLoginPage = pathname === '/auth/login' || pathname === '/auth/signin/login';
+    if (status === 'unauthenticated' && !isLoginPage) {
       router.replace('/auth/login'); // Use replace to avoid stacking login pages in history
     }
   }, [status, pathname, router]);
@@ -68,10 +69,11 @@ export default function MainLayout({ children }: MainLayoutProps) {
     );
   }
 
-  // If unauthenticated, allow the /auth/login page to render itself without the full layout.
+  // If unauthenticated, allow the login pages to render themselves without the full layout.
   // For any other unauthenticated page, the useEffect above will redirect.
   if (status === 'unauthenticated') {
-    if (pathname === '/auth/login') {
+    const isLoginPage = pathname === '/auth/login' || pathname === '/auth/signin/login';
+    if (isLoginPage) {
       return <>{children}</>;
     }
     // For other unauthenticated paths, useEffect should have redirected.
