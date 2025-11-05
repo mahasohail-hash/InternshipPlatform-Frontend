@@ -1,464 +1,421 @@
-'use client';
+'use client'; // This MUST be the very first line of the file, with absolutely no preceding characters or whitespace.
 
-import React, { useState, useEffect, useCallback } from 'react';
-// Assuming 'src' is the root, paths go up 2 levels
 import MainLayout from '../../components/MainLayout';
-import {
-  Typography,
-  Card,
-  Col,
-  Row,
-  Button,
-  Modal,
-  Form,
-  Input,
-  DatePicker,
-  Select,
-  notification,
-  Spin,
-  Alert,
-  Space,
-} from 'antd';
-import { 
-  PlusOutlined, 
-  ProjectOutlined, 
-  DeleteOutlined,
-  LineChartOutlined, // For GitHub/Metrics
-  FilePdfOutlined,  // For Reports
-  EditOutlined,     // For Evaluation
-} from '@ant-design/icons';
-import { useSession } from 'next-auth/react';
-import api from '../../../lib/api';
+import { Typography, Card, Col, Row, List, Button, Spin, Alert, Tag, Space, Modal, Form, Input, DatePicker, Select, notification, Result } from 'antd';
+import { ProjectOutlined, UserOutlined, PlusOutlined, EditOutlined, FilePdfOutlined, LineChartOutlined, MinusCircleOutlined, GithubOutlined } from '@ant-design/icons';
 import { useRouter } from 'next/navigation';
-import { isAxiosError } from 'axios';
+import { useState, useEffect, useCallback } from 'react';
+import api from '../../../lib/api';
+import { useSession, signOut } from 'next-auth/react';
+import dayjs from 'dayjs';
 import { UserRole } from '../../../common/enums/user-role.enum';
+import { AxiosError } from 'axios';
 
-const { Option } = Select;
+
 const { Title, Text, Paragraph } = Typography;
+const { Option } = Select;
 
-// Define Project interface
-interface Project {
-  id: string;
-  title: string;
-  status: string;
-  milestones: { tasks: any[] }[];
-  intern: { id: string; firstName: string; lastName: string };
+// --- DTO INTERFACES (Must match your Backend DTOs and Entity Structures) ---
+interface Intern { id: string; firstName: string; lastName: string; email: string; role: UserRole; }
+interface ProjectSummary { id: string; title: string; status: string; intern?: Intern; milestones: any[]; }
+interface GithubMetricsSummary { totalCommits: number; totalAdditions: number; totalDeletions: number; }
+interface NlpSummary { sentimentScore: string; keyThemes: string[]; }
+interface InternInsights {
+    github?: GithubMetricsSummary;
+    nlp?: NlpSummary;
+    tasks?: { total: number; completed: number; completionRate: number; };
+    evaluationsDue: number;
+}
+// --- COMPONENT FOR PROJECT CREATION MODAL CONTENT ---
+interface ProjectCreationFormContentProps {
+  form: any;
+  interns: Intern[];
+  onInternChange: (id: string) => void;
+  loadingInterns: boolean;
 }
 
-// Define Intern interface for dropdown
-interface InternUser {
-  id: string;
-  firstName: string;
-  lastName: string;
-  role?: string; // Add role for filtering
-}
+const ProjectCreationFormContent: React.FC<ProjectCreationFormContentProps> = ({ form, interns, onInternChange, loadingInterns }) => (
+    <>
+        <Card title="Project Details" size="small" style={{ marginBottom: 15 }}>
+            <Form.Item name="title" label="Project Title" rules={[{ required: true, message: 'Please input project title!' }]}><Input /></Form.Item>
+            <Form.Item name="description" label="Project Description"><Input.TextArea rows={2} /></Form.Item>
+            <Form.Item name="internId" label="Assign Intern" rules={[{ required: true, message: 'Please select an intern!' }]} help="All tasks will default to this intern">
+                <Select placeholder="Select Intern" onChange={onInternChange} loading={loadingInterns} disabled={loadingInterns}>
+                    {interns.map(intern => (<Option key={intern.id} value={intern.id}>{intern.firstName} {intern.lastName} ({intern.email})</Option>))}
+                </Select>
+            </Form.Item>
+        </Card>
 
-// --- NEW INTERFACE FOR AI INSIGHTS ---
-interface InternInsight {
-    internId: string;
-    totalCommits: number;
-    sentimentScore: string;
-}
-
-// 1. Interface for the Fetched Data
-interface InternMetrics {
-    totalCommits: number;
-    linesChanged: number;
-    lastUpdated: string;
-}
-
-export default function MentorDashboardPage() {
-  // --- Hooks ---
-  const { data: session, status: sessionStatus } = useSession();
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const [form] = Form.useForm();
-  const router = useRouter();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [interns, setInterns] = useState<InternUser[]>([]);
-  const [loadingProjects, setLoadingProjects] = useState(true);
-  const [loadingInterns, setLoadingInterns] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isSubmittingProject, setIsSubmittingProject] = useState(false);
-  // --- NEW STATE FOR AI DATA ---
-  const [aiInsights, setAiInsights] = useState<InternInsight[]>([]);
-  const [loadingInsights, setLoadingInsights] = useState(false);
-
-  // --- User Info ---
-  const user = session?.user as any;
-  const mentorId = user?.id;
-  const role = user?.role;
-  const mentorName = user?.firstName || user?.name || 'Mentor'; // Use first name/name if available
-
-
-// 2. New State (using Map for efficient access)
-const [githubMetrics, setGithubMetrics] = useState<Map<string, InternMetrics>>(new Map());
-
-// 3. New Fetch Function
-const fetchGithubMetrics = useCallback(async (internId: string) => {
-    if (githubMetrics.has(internId)) return; // Don't refetch if already present
-    try {
-        // 🔥 Path must be correct: /analytics/github-summary/ followed by the ID
-        const res = await api.get(`/analytics/github-summary/${internId}`); 
-        setGithubMetrics(prev => new Map(prev).set(internId, res.data));
-    } catch (error) {
-        console.error(`Could not load metrics for ${internId}.`);
-    }
-}, [githubMetrics]);
-
-// 4. Trigger Fetch after Projects Load (Use the first intern for the dashboard summary)
-useEffect(() => {
-    if (projects.length > 0 && projects[0].intern.id && !githubMetrics.has(projects[0].intern.id)) {
-        fetchGithubMetrics(projects[0].intern.id);
-    }
-}, [projects, fetchGithubMetrics, githubMetrics]);
-
-// ... (Inside the render section for the AI Insights Card)
-
-const firstInternMetrics = projects.length > 0 
-    ? githubMetrics.get(projects[0].intern.id) 
-    : undefined;
-
-<Col xs={24} md={12}>
-    <Card
-        title="Objective & AI Insights"
-        // ...
-    >
-        <Paragraph style={{ marginBottom: 8 }}>
-            **GitHub Metrics (4.5):** {firstInternMetrics ? (
-                <Text strong style={{marginLeft: 8, color: '#389e0d'}}>
-                    {firstInternMetrics.totalCommits} Commits / {firstInternMetrics.linesChanged} Lines
-                </Text>
-            ) : (
-                <Text type="secondary" style={{marginLeft: 8}}>Metrics not available or loading...</Text>
+        <Title level={5}>Milestones & Tasks</Title>
+        <Form.List name="milestones">
+            {(fields, { add, remove }) => (
+                <Space direction="vertical" style={{ width: '100%' }}>
+                    {fields.map(({ key: milestoneKey, name: milestoneName, ...milestoneRestField }) => (
+                        <Card
+                            key={milestoneKey}
+                            size="small"
+                            title={`Milestone: ${form.getFieldValue(['milestones', milestoneName, 'title']) || `Milestone #${milestoneKey + 1}`}`}
+                            extra={<MinusCircleOutlined onClick={() => remove(milestoneName)} />}
+                            style={{ width: '100%' }}
+                        >
+                            <Form.Item {...milestoneRestField} name={[milestoneName, 'title']} rules={[{ required: true, message: 'Please input milestone title!' }]} label="Milestone Title"><Input size="small" /></Form.Item>
+                            <Form.List name={[milestoneName, 'tasks']}>
+                                {(taskFields, { add: addTask, remove: removeTask }) => (
+                                    <Space direction="vertical" style={{ width: '100%' }}>
+                                        {taskFields.map(({ key: taskKey, name: taskName, ...taskRestField }) => (
+                                            <Row key={taskKey} gutter={8} align="middle">
+                                                <Col span={9}>
+                                                    <Form.Item {...taskRestField} name={[taskName, 'title']} rules={[{ required: true, message: 'Please input task title!' }]} style={{ marginBottom: 0 }}><Input placeholder="Task Title" size="small" /></Form.Item>
+                                                </Col>
+                                                <Col span={7}>
+                                                    <Form.Item {...taskRestField} name={[taskName, 'dueDate']} rules={[{ required: true, message: 'Please select a due date!' }]} style={{ marginBottom: 0 }}><DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" size="small" placeholder="Due Date" /></Form.Item>
+                                                </Col>
+                                                <Col span={6}>
+                                                    <Form.Item {...taskRestField} name={[taskName, 'assignedToInternId']} initialValue={form.getFieldValue('internId')} hidden><Input /></Form.Item>
+                                                    <Text type="secondary" style={{ lineHeight: '24px', fontSize: '12px' }}>Assigned to: {interns.find(i => i.id === form.getFieldValue('internId'))?.firstName || 'Project Intern'}</Text>
+                                                </Col>
+                                                <Col span={2}><MinusCircleOutlined onClick={() => removeTask(taskName)} style={{ fontSize: '16px', color: '#ff4d4f' }} /></Col>
+                                            </Row>
+                                        ))}
+                                        <Button type="dashed" onClick={() => addTask({ assignedToInternId: form.getFieldValue('internId') })} block icon={<PlusOutlined />} size="small">Add Task</Button>
+                                    </Space>
+                                )}
+                            </Form.List>
+                        </Card>
+                    ))}
+                    <Button type="dashed" onClick={() => add()} block icon={<PlusOutlined />} style={{ marginTop: 10 }}>Add Milestone</Button>
+                </Space>
             )}
-        </Paragraph>
-        {/* ... NLP Feedback logic goes here ... */}
-    </Card>
-</Col>
+        </Form.List>
+    </>
+);
 
 
-  // --- NEW: Data Fetching for AI/Metrics (Conceptual) ---
-  const fetchAllInsights = useCallback(async (internsList: InternUser[]) => {
-      if (internsList.length === 0) return;
-      setLoadingInsights(true);
-      try {
-          // In a real app, you'd fetch all insights in one batched call
-          // For simplicity here, we'll assume a dummy consolidated fetch
-          const res = await api.get('/analytics/dashboard-summary');
-          setAiInsights(res.data || []);
-      } catch (err) {
-          console.error('Failed to fetch AI insights:', err);
-      } finally {
-          setLoadingInsights(false);
-      }
-  }, []);
+// --- MAIN MENTOR DASHBOARD COMPONENT ---
+export default function MentorDashboardPage() {
+    const router = useRouter();
+    const { data: session, status: sessionStatus } = useSession();
+    const [projects, setProjects] = useState<ProjectSummary[]>([]);
+    const [interns, setInterns] = useState<Intern[]>([]);
+    const [mentorName, setMentorName] = useState('Mentor');
+    const [loadingProjects, setLoadingProjects] = useState(true);
+    const [loadingInterns, setLoadingInterns] = useState(true);
+    const [selectedInternForReport, setSelectedInternForReport] = useState<string | null>(null);
+    const [loadingInsights, setLoadingInsights] = useState(false);
+    const [firstInternInsights, setFirstInternInsights] = useState<InternInsights | null>(null);
+    const [isModalVisible, setIsModalVisible] = useState(false);
+    const [form] = Form.useForm();
+    const mentorId = session?.user?.id;
+    const mentorRole = session?.user?.role;
 
-  // --- Data Fetching Callbacks ---
+    // --- Memoized function to fetch insights for a specific intern ---
+    const fetchInsightsForIntern = useCallback(async (internId: string) => {
+        if (!internId) {
+            setFirstInternInsights(null);
+            setLoadingInsights(false);
+            return;
+        }
+        setLoadingInsights(true);
+        try {
+            const insightsRes = await api.get<InternInsights>(`/analytics/intern/${internId}/insights`);
+            setFirstInternInsights(insightsRes.data);
+        } catch (error) {
+            console.error("Failed to fetch insights:", error);
+            notification.error({ message: 'Failed to load insights for intern.' });
+            setFirstInternInsights(null);
+        } finally {
+            setLoadingInsights(false);
+        }
+    }, []); // No external dependencies here, so this function is truly stable
 
-  const fetchMentorProjects = useCallback(async () => {
-    setError(null);
-    setLoadingProjects(true);
-    try {
-      const res = await api.get('/projects/mentor');
-      setProjects(res.data || []);
-    } catch (err: any) {
-      console.error('Mentor project fetch failed:', err);
-      setError(err.response?.data?.message || 'Failed to load projects.');
-      notification.error({
-        message: 'Data Load Error',
-        description: 'Could not fetch projects.',
-      });
-      setProjects([]);
-    } finally {
-      setLoadingProjects(false);
-    }
-  }, []);
-
-  // --- THIS IS THE FIX ---
-  const fetchInternUsers = useCallback(async () => {
-    setLoadingInterns(true);
-    try {
-     const res = await api.get('/users/interns');
-     const rawData = res.data || [];
-      
-      // 3. Filter out null/undefined interns AND interns with null/undefined IDs
-      const validInterns = (rawData as (InternUser | null | undefined)[])
-        .filter((i): i is InternUser =>
-          i !== null && i !== undefined && i.id !== null && i.id !== undefined,
-        );
-
-      // 4. Filter out duplicate IDs (and ensure non-INTERN roles are excluded if needed)
-      const seenIds = new Set<string>();
-      const uniqueInterns = validInterns.filter(i => {
-        if (seenIds.has(i.id)) {
-          return false;
-        }
-        seenIds.add(i.id);
-        return true;
-      });
-
-      // 5. Set the cleaned, valid data
-      setInterns(uniqueInterns);
-    } catch (err) {
-      console.error('Failed to fetch interns for dropdown:', err);
-      notification.error({
-        message: 'Error',
-        description: 'Could not load intern list for project creation.',
-      });
-      setInterns([]);
-    } finally {
-      setLoadingInterns(false);
-    }
-  }, []); // Empty dependency array is correct
-
-  // --- useEffects for Data Fetching ---
-
-  useEffect(() => {
-    if (sessionStatus === 'authenticated' && mentorId && role === UserRole.MENTOR) {
-      fetchMentorProjects();
-      fetchInternUsers();
-    } else if (sessionStatus !== 'loading') {
-      setLoadingProjects(false);
-      setProjects([]);
-    }
-  }, [sessionStatus, mentorId, role, fetchMentorProjects, fetchInternUsers]);
-
-  // NEW: Fetch AI insights after interns are loaded
-  useEffect(() => {
-      if (interns.length > 0 && !loadingInsights && aiInsights.length === 0) {
-          fetchAllInsights(interns);
-      }
-  }, [interns, loadingInsights, aiInsights, fetchAllInsights]);
-
-  // --- Handle Project Creation ---
-  const handleProjectCreation = async (values: any) => {
-    setIsSubmittingProject(true);
-    try {
-      const payload = {
-        title: values.title,
-        internId: values.internId,
-        description: values.description || '',
-        milestones: values.milestones
-          ? values.milestones.map((m: any) => ({
-              title: m.title,
-              dueDate: m.dueDate ? m.dueDate.toISOString() : undefined,
-              tasks: m.tasks
-                ? m.tasks.map((t: any) => ({
-                    title: t.title,
-                    dueDate: t.dueDate ? t.dueDate.toISOString() : undefined,
-                    assignedToInternId: values.internId,
-                  }))
-                : [],
-            }))
-          : [],
-      };
-
-      await api.post('/projects', payload);
-      notification.success({
-        message: 'Project Created',
-        description: `Project "${values.title}" assigned successfully!`,
-      });
-      setIsModalVisible(false);
-      form.resetFields();
-      fetchMentorProjects(); // Re-fetch projects
-    } catch (error: any) { 
-      console.error('Project Creation Failed:', error.response?.data || error);
-      let errorDesc =
-        'Could not create project. Please check the details and try again.';
-      if (isAxiosError(error) && error.response?.data?.message) {
-        if (Array.isArray(error.response.data.message)) {
-          errorDesc = error.response.data.message.join('; ');
-        } else {
-          errorDesc = error.response.data.message;
-        }
-      }
-      notification.error({
-        message: 'Creation Failed',
-        description: errorDesc,
-        duration: 7,
-      });
-    } finally {
-      setIsSubmittingProject(false);
-    }
-  };
-
-  // --- Conditional Rendering ---
-  const isLoading = sessionStatus === 'loading' || loadingProjects;
-
-  if (isLoading) {
-    return (
-      <MainLayout>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            height: '60vh',
-          }}
-        >
-          <Spin size="large" />
-        </div>
-      </MainLayout>
-    );
-  }
-
-  if (sessionStatus === 'unauthenticated' || role !== UserRole.MENTOR) {
-    return (
-      <MainLayout>
-        <Alert
-          message="Access Denied"
-          description="You must be logged in as a Mentor to view this page."
-          type="error"
-          showIcon
-        />
-      </MainLayout>
-    );
-  }
-
-  if (error) {
-    return (
-      <MainLayout>
-        <Alert
-          message="Error Loading Data"
-          description={error}
-          type="warning"
-          showIcon
-        />
-      </MainLayout>
-    );
-  }
-  
-  // --- Helper to get data for the first project intern (for display purposes) ---
-  const firstInternId = projects.length > 0 ? projects[0].intern.id : undefined;
-  const firstInternInsights = aiInsights.find(i => i.internId === firstInternId);
-  // ---
-
-  return (
-    <MainLayout>
-      <Title level={2}>👋 Welcome, {mentorName}!</Title>
-      <Paragraph type="secondary" style={{ marginBottom: '24px' }}>
-        Manage your assigned projects, leverage AI insights, and provide feedback to your interns.
-      </Paragraph>
-
-      <Row gutter={[24, 24]}>
-        
-        {/* 1. Project Management Card (Existing Core Feature) */}
-        <Col xs={24} md={12}>
-          <Card
-            title="Project Management"
-            extra={
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setIsModalVisible(true)}
-              >
-                Define New Project
-              </Button>
-            }
-          >
-            <Paragraph>
-              Create new projects, define milestones and tasks, and assign them to your interns.
-            </Paragraph>
-            <Text strong>
-              <ProjectOutlined style={{ marginRight: 8 }} />
-              {projects.length} Current Project(s)
-            </Text>
-            <Button
-              type="link"
-              onClick={() => router.push('/mentor/projects')}
-              style={{ marginLeft: '10px' }}
-            >
-              View All Projects
-            </Button>
-          </Card>
-        </Col>
-
-        {/* 2. Evaluation & Feedback Card (4.4) */}
-        <Col xs={24} md={12}>
-          <Card
-            title="Evaluation & Feedback"
-            extra={
-                <Button type="link" icon={<EditOutlined />} onClick={() => router.push('/mentor/evaluate')}>
-                    Start Review
-                </Button>
+    // --- Memoized function to fetch projects ---
+    const fetchProjects = useCallback(async () => {
+        if (!mentorId) return;
+        setLoadingProjects(true);
+        try {
+            const res = await api.get<ProjectSummary[]>(`/projects/mentor`);
+            setProjects(res.data);
+            // After projects are loaded, trigger insights fetch for the first intern
+            if (res.data.length > 0 && res.data[0].intern?.id) {
+                fetchInsightsForIntern(res.data[0].intern.id);
+            } else {
+                 setFirstInternInsights(null);
             }
-          >
-            <Paragraph>
-              Submit weekly notes, midpoint reviews, and final evaluations for your interns' performance.
-            </Paragraph>
-            <Text type="warning" strong>
-                You have **1 Final Review** due this week.
-            </Text>
-          </Card>
-        </Col>
+        } catch (error) {
+            console.error("Failed to load projects:", error);
+            notification.error({ message: 'Failed to load projects.' });
+        } finally {
+            setLoadingProjects(false);
+        }
+    }, [mentorId, fetchInsightsForIntern]); // fetchInsightsForIntern is a stable dependency
 
-        {/* 3. Objective & AI Insights Card (4.5, 4.6) */}
-        <Col xs={24} md={12}>
-          <Card
-            title="Objective & AI Insights"
-            loading={loadingInsights}
-            extra={
-              <Button type="link" onClick={() => router.push('/mentor/metrics')} icon={<LineChartOutlined />}>
-                View Details
-              </Button>
-            }
-          >
-            <Paragraph style={{ marginBottom: 8 }}>
-              **GitHub Metrics (4.5):** {firstInternInsights ? (
-                    <Text strong style={{marginLeft: 8, color: '#389e0d'}}>
-                        {firstInternInsights.totalCommits} Commits (Avg)
-                    </Text>
-                ) : (<Text type="secondary" style={{marginLeft: 8}}>Metrics not yet available.</Text>)}
-            </Paragraph>
-            <Paragraph style={{ marginBottom: 0 }}>
-              **NLP Feedback (4.6):** {firstInternInsights ? (
-                    <Text strong style={{marginLeft: 8, color: firstInternInsights.sentimentScore === 'Positive' ? '#389e0d' : '#faad14'}}>
-                        {firstInternInsights.sentimentScore} Sentiment
-                    </Text>
-                ) : (<Text type="secondary" style={{marginLeft: 8}}>No feedback summarized.</Text>)}
-            </Paragraph>
-          </Card>
-        </Col>
+    // --- NEW: Handle PDF Generation Download ---
+    const handleGeneratePdfReport = async () => {
+        if (!selectedInternForReport) {
+            notification.error({ message: 'Please select an intern for the report.' });
+            return;
+        }
+        notification.info({ message: 'Generating PDF report...', duration: 0 });
 
-        {/* 4. Reports & Exports Card (4.8) */}
-        <Col xs={24} md={12}>
-          <Card 
-              title="Reports & Exports" 
-              extra={
-                  <Button type="link" icon={<FilePdfOutlined />} onClick={() => router.push('/mentor/reports')}>
-                      Reports Page
-                  </Button>
-              }
-          >
-            <Paragraph>
-              Generate a final summary **PDF packet (4.8)** of all evaluations for an intern.
-            </Paragraph>
-            <Button 
-              type="default" 
-              icon={<FilePdfOutlined />}
-              // NOTE: This should likely link to a reports page where an intern is selected
-              onClick={() => router.push('/mentor/reports')}
-            >
-              Generate Final PDF Report
-            </Button>
-          </Card>
-        </Col>
-      </Row>
+        try {
+            const response = await api.get(`/reports/final-packet/${selectedInternForReport}`, {
+                responseType: 'blob', // IMPORTANT: Expect binary data (a Blob)
+            });
 
-      {/* --- Project Creation Modal (Kept for completeness) --- */}
-      <Modal
-        title="Create New Intern Project"
-        open={isModalVisible}
-        onCancel={() => {
-          setIsModalVisible(false);
-          form.resetFields();
-        }}
-        footer={null}
-        width={700}
-        destroyOnClose 
-      >
-        {/* ... (Modal Form content is lengthy but kept the same) ... */}
-      </Modal>
-    </MainLayout>
-  );
+            const blob = new Blob([response.data], { type: 'application/pdf' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `intern_report_${selectedInternForReport}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            notification.success({ message: 'PDF Report Generated and Downloaded!' });
+
+        } catch (error: any) {
+            console.error("PDF generation failed:", error.response?.data || error.message);
+            notification.error({ message: 'PDF Generation Failed', description: error.response?.data?.message || 'Could not generate PDF.' });
+        } finally {
+            notification.destroy();
+        }
+    };
+
+
+    useEffect(() => {
+        if (sessionStatus === 'authenticated' && mentorRole === UserRole.MENTOR) {
+            fetchProjects();
+        } else if (sessionStatus === 'authenticated' && mentorRole && mentorRole !== UserRole.MENTOR) {
+            notification.error({message: 'Access Denied', description: 'Redirecting to appropriate dashboard.'});
+            router.push('/');
+        } else if (sessionStatus === 'unauthenticated' || sessionStatus === 'loading') {
+            // Handled by MainLayout redirect or loading state
+        }
+    }, [sessionStatus, mentorRole, fetchProjects, router]);
+
+    const fetchInternsList = useCallback(async () => {
+        try {
+            setLoadingInterns(true);
+            const res = await api.get<Intern[]>(`/users`);
+            setInterns(res.data.filter((u: Intern) => u.role === UserRole.INTERN));
+        } catch (error) {
+            console.error("Failed to load intern list for assignment:", error);
+            notification.error({ message: 'Failed to load intern list for assignment.' });
+        } finally {
+            setLoadingInterns(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (sessionStatus === 'authenticated' && mentorRole === UserRole.MENTOR) {
+            fetchInternsList();
+            if (session?.user?.name) {
+                setMentorName(session.user.name.split(' ')[0]);
+            }
+        }
+    }, [sessionStatus, mentorRole, fetchInternsList, session?.user?.name]);
+
+    // This useEffect is no longer needed since fetchInsightsForIntern is called directly from fetchProjects
+    // useEffect(() => {
+    //     if (selectedInternForReport) { // Use selectedInternForReport here if it was for that
+    //         fetchInsightsForIntern(selectedInternForReport);
+    //     } else {
+    //         setFirstInternInsights(null);
+    //     }
+    // }, [selectedInternForReport, fetchInsightsForIntern]);
+
+
+    // --- Project Creation Form Submission ---
+    const handleProjectCreation = async (values: any) => {
+        const payload = {
+            ...values,
+            milestones: values.milestones.map((m: any) => ({
+                ...m,
+                tasks: m.tasks.map((t: any) => ({
+                    ...t,
+                    dueDate: dayjs(t.dueDate).toISOString()
+                })),
+            })),
+            internId: values.internId,
+        };
+
+        try {
+            await api.post('/projects', payload);
+            notification.success({ message: 'Project Created', description: 'Project and all associated tasks are now live.' });
+            setIsModalVisible(false);
+            form.resetFields();
+            fetchProjects();
+        } catch (error: any) {
+            console.error("Project Creation Failed:", error.response?.data || error.message);
+            notification.error({ message: 'Creation Failed', description: error.response?.data?.message || 'Check console for errors.' });
+        }
+    };
+
+    const handleInternChangeInModal = useCallback((internId: string) => {
+        const milestones = form.getFieldValue('milestones');
+        if (milestones) {
+            const newMilestones = milestones.map((m: any) => ({
+                ...m,
+                tasks: m.tasks ? m.tasks.map((t: any) => ({ ...t, assignedToInternId: internId })) : []
+            }));
+            form.setFieldsValue({ milestones: newMilestones });
+        }
+    }, [form]);
+
+
+    if (sessionStatus === 'loading' || loadingProjects || loadingInterns) return <MainLayout><Spin size="large" tip="Loading Mentor Dashboard..." /></MainLayout>;
+
+    if (sessionStatus === 'unauthenticated' || mentorRole !== UserRole.MENTOR) {
+        return (
+            <MainLayout>
+                <Result
+                    status="403"
+                    title="Access Denied"
+                    subTitle="You do not have permission to view the Mentor Dashboard."
+                />
+            </MainLayout>
+        );
+    }
+
+    // --- Render Content ---
+    return (
+        <MainLayout>
+            <Title level={2}>👋 Welcome, {mentorName}!</Title>
+            <Paragraph type="secondary" style={{ marginBottom: '24px' }}>
+                Manage your assigned projects, leverage AI insights, and provide feedback to your interns.
+            </Paragraph>
+
+ <Row gutter={[24, 24]}> 
+                <Col xs={24} md={12}>
+                    <Card
+                        title="Project Management"
+                        extra={
+                            <Button
+                                type="primary"
+                                icon={<PlusOutlined />}
+                                onClick={() => { setIsModalVisible(true); form.resetFields(); form.setFieldsValue({ milestones: [{ tasks: [{}] }] }); }}
+                            >
+                                Define New Project
+                            </Button>
+                        }
+                    >
+                        <Paragraph>
+                            Create new projects, define milestones and tasks, and assign them to your interns.
+                        </Paragraph>
+                        <Text strong>
+                            <ProjectOutlined style={{ marginRight: 8 }} />
+                            {projects.length} Current Project(s)
+                        </Text>
+                        <Button
+                            type="link"
+                            onClick={() => router.push('/mentor/projects')}
+                            style={{ marginLeft: '10px' }}
+                        >
+                            View All Projects
+                        </Button>
+                    </Card>
+                </Col>
+
+                <Col xs={24} md={12}>
+                    <Card
+                        title="Evaluation & Feedback"
+                        extra={
+                            <Button type="link" icon={<EditOutlined />} onClick={() => router.push('/mentor/evaluate')}>
+                                Start Review
+                            </Button>
+                        }
+                    >
+                        <Paragraph>
+                            Submit weekly notes, midpoint reviews, and final evaluations for your interns' performance.
+                        </Paragraph>
+                        <Text type="warning" strong>
+                            You have **{firstInternInsights?.evaluationsDue || 0} Final Review(s)** due this week.
+                        </Text>
+                    </Card>
+                </Col>
+
+                <Col xs={24} md={12}>
+                    <Card
+                        title="Objective & AI Insights"
+                        loading={loadingInsights}
+                        extra={
+                            <Button type="link" onClick={() => notification.info({message: 'View all Interns for specific GitHub/NLP reports'})} icon={<LineChartOutlined />}>
+                                View Details
+                            </Button>
+                        }
+                    >
+                        <Paragraph style={{ marginBottom: 8 }}>
+                            <GithubOutlined style={{ marginRight: 8 }} />
+                            **GitHub Metrics (4.5):** {firstInternInsights?.github ? (
+                                <Text strong style={{marginLeft: 8, color: '#389e0d'}}>
+                                    {firstInternInsights.github.totalCommits} Commits (Avg)
+                                </Text>
+                            ) : (<Text type="secondary" style={{marginLeft: 8}}>Metrics not yet available.</Text>)}
+                        </Paragraph>
+                        <Paragraph style={{ marginBottom: 0 }}>
+                            <UserOutlined style={{ marginRight: 8 }} />
+                            **NLP Feedback (4.6):** {firstInternInsights?.nlp ? (
+                                <Text strong style={{marginLeft: 8, color: firstInternInsights.nlp.sentimentScore === 'Positive' ? '#389e0d' : '#faad14'}}>
+                                    {firstInternInsights.nlp.sentimentScore} Sentiment
+                                </Text>
+                            ) : (<Text type="secondary" style={{marginLeft: 8}}>No feedback summarized.</Text>)}
+                        </Paragraph>
+                    </Card>
+                </Col>
+
+            <Col xs={24} md={12}>
+                <Card
+                    title="Reports & Exports"
+                    extra={
+                        <Select
+                            placeholder="Select Intern"
+                            style={{ width: 150 }}
+                            onChange={value => setSelectedInternForReport(value as string)}
+                            value={selectedInternForReport}
+                            loading={loadingInterns}
+                            disabled={loadingInterns || interns.length === 0}
+                        >
+                            {interns.map(intern => (
+                                <Option key={intern.id} value={intern.id}>{intern.firstName} {intern.lastName}</Option>
+                            ))}
+                        </Select>
+                    }
+                >
+                    <Paragraph>
+                        Generate a comprehensive **PDF packet (4.8)** summarizing evaluations and objective metrics.
+                    </Paragraph>
+                    <Button
+                        type="default"
+                        icon={<FilePdfOutlined />}
+                        onClick={handleGeneratePdfReport}
+                        disabled={!selectedInternForReport}
+                    >
+                        Generate Final PDF Report
+                    </Button>
+                </Card>
+            </Col>
+
+            <Modal
+                title="Create New Intern Project"
+                open={isModalVisible}
+                onCancel={() => { setIsModalVisible(false); form.resetFields(); }}
+                footer={null}
+                width={700}
+                destroyOnClose
+            >
+                <Form form={form} layout="vertical" onFinish={handleProjectCreation} initialValues={{ milestones: [{ tasks: [{}] }] }}>
+                    <ProjectCreationFormContent form={form} interns={interns} onInternChange={handleInternChangeInModal} loadingInterns={loadingInterns} />
+
+                    <Form.Item style={{ marginTop: 20 }}>
+                        <Button type="primary" htmlType="submit" size="large" block>
+                            Create Project & Tasks
+                        </Button>
+                    </Form.Item>
+                </Form>
+            </Modal>
+               </Row>
+        </MainLayout>
+          
+    );
 }

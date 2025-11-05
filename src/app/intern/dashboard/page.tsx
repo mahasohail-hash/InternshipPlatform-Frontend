@@ -1,11 +1,10 @@
-// app/intern/dashboard/page.tsx
 'use client';
 import MainLayout from '../../components/MainLayout';
-import { Typography, Card, List, Progress, Space, Spin, Result,Tag } from 'antd'; // Added Spin, Result
-import api from '../../../lib/api'; 
+import { Typography, Card, List, Progress, Space, Spin, Result,Tag } from 'antd';
+import api from '../../../lib/api';
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { AxiosError } from 'axios'; // Import AxiosError
+import { AxiosError } from 'axios';
 
 const { Title } = Typography;
 
@@ -13,71 +12,77 @@ const { Title } = Typography;
 interface Task {
   id: string;
   title: string;
-  status: string; // e.g., 'To Do', 'In Progress', 'Done'
+  status: 'To Do' | 'In Progress' | 'Done' | 'Blocked'; // Specific enum values
   dueDate?: string; // Optional due date string
 }
 
 export default function InternDashboardPage() {
-    const { data: session } = useSession(); // Get session data
-    const [tasks, setTasks] = useState<Task[]>([]); // Use Task interface
-    const [loading, setLoading] = useState(true); // Add loading state
-    const [error, setError] = useState<string | null>(null); // Add error state
+    const { data: session, status: sessionStatus } = useSession();
+    const [tasks, setTasks] = useState<Task[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
-    // Get internId safely from session
-    const internId = (session?.user as any)?.id; 
+    const internId = session?.user?.id;
 
     useEffect(() => {
-        // Only fetch if internId is available
+        if (sessionStatus === 'loading') {
+            setLoading(true);
+            setError(null);
+            return;
+        }
+
         if (!internId) {
-            setLoading(false); // Stop loading if no ID
-            
-            return; 
+            setLoading(false);
+            if (sessionStatus === 'unauthenticated') {
+                // Optionally redirect to login if unauthenticated and no ID
+                // router.push('/auth/login');
+            } else {
+                setError("Intern ID not available. Please ensure you are logged in correctly.");
+            }
+            return;
         }
 
         const fetchInternData = async () => {
             setLoading(true);
-            setError(null); // Reset error on new fetch
+            setError(null);
             try {
-                // --- FIX: Correct the API endpoint ---
-                const response = await api.get(`/projects/intern/${internId}/tasks`); 
-                // ------------------------------------
-                setTasks(response.data); 
+                // CRITICAL FIX: Correct the API endpoint
+                const response = await api.get(`/projects/intern/${internId}/tasks`);
+                setTasks(response.data);
             } catch (err) {
                 console.error("Failed to fetch intern tasks:", err);
                 let message = "Could not load tasks.";
                 if (err instanceof AxiosError && err.response?.status === 404) {
                     message = "No tasks found for this intern or endpoint is incorrect.";
+                } else if (err instanceof AxiosError) {
+                    message = err.response?.data?.message || err.message;
                 } else if (err instanceof Error) {
                     message = err.message;
                 }
-                setError(message); // Set error message
-                setTasks([]); // Clear tasks on error
+                setError(message);
+                setTasks([]);
             } finally {
-                setLoading(false); // Stop loading regardless of outcome
+                setLoading(false);
             }
         };
 
         fetchInternData();
-    // Depend on internId - refetch if it changes (e.g., on login/logout)
-    }, [internId]); 
+    }, [internId, sessionStatus]);
 
-    // Calculate completion rate (check for division by zero)
-    const completionRate = tasks.length > 0 
-        ? (tasks.filter((t) => t.status === 'Done').length / tasks.length) * 100 
+    const completionRate = tasks.length > 0
+        ? (tasks.filter((t) => t.status === 'Done').length / tasks.length) * 100
         : 0;
 
-    // --- Render loading state ---
-    if (loading) {
+    if (loading || sessionStatus === 'loading') {
         return (
             <MainLayout>
                 <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-                    <Spin size="large" />
+                    <Spin size="large" tip="Loading your dashboard..." />
                 </div>
             </MainLayout>
         );
     }
 
-    // --- Render error state ---
     if (error) {
         return (
             <MainLayout>
@@ -86,17 +91,16 @@ export default function InternDashboardPage() {
         );
     }
 
-    // --- Render content ---
     return (
         <MainLayout>
-            <Title level={2}>Welcome, Intern! - Your Dashboard</Title>
-            
+            <Title level={2}>Welcome to Your Dashboard, {session?.user?.name || session?.user?.email}!</Title>
+
             <Card title="Overall Task Progress" style={{ marginBottom: 20 }}>
                 {tasks.length > 0 ? (
                     <>
-                        <Progress 
-                            percent={Math.round(completionRate)} 
-                            status={completionRate === 100 ? "success" : completionRate < 50 ? "exception" : "active"} 
+                        <Progress
+                            percent={Math.round(completionRate)}
+                            status={completionRate === 100 ? "success" : completionRate < 50 ? "exception" : "active"}
                         />
                         <p>{tasks.filter(t => t.status === 'Done').length} / {tasks.length} tasks completed.</p>
                     </>
@@ -108,14 +112,18 @@ export default function InternDashboardPage() {
             <Title level={3}>Tasks Due Soon / In Progress</Title>
             <List
                 bordered
-                dataSource={tasks.filter((t) => t.status !== 'Done').slice(0, 5)} // Show non-done tasks
+                dataSource={tasks.filter((t) => t.status !== 'Done' && t.status !== 'Blocked').sort((a, b) => {
+                    if (!a.dueDate) return 1;
+                    if (!b.dueDate) return -1;
+                    return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+                }).slice(0, 5)}
                 renderItem={(item) => (
                     <List.Item>
                         <Space direction="vertical" style={{ flexGrow: 1 }}>
                             <Typography.Text strong>{item.title}</Typography.Text>
-                            {item.dueDate && ( // Only show due date if it exists
+                            {item.dueDate && (
                                 <Typography.Text type="secondary">
-                                    Due: {new Date(item.dueDate).toLocaleDateString()} 
+                                    Due: {new Date(item.dueDate).toLocaleDateString()}
                                 </Typography.Text>
                             )}
                         </Space>
@@ -124,7 +132,7 @@ export default function InternDashboardPage() {
                         </Tag>
                     </List.Item>
                 )}
-                locale={{ emptyText: 'No pending tasks found.' }} // Message when list is empty
+                locale={{ emptyText: 'No pending tasks found.' }}
             />
         </MainLayout>
     );

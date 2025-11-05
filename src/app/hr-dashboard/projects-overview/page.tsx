@@ -2,53 +2,66 @@
 
 import React, { useState, useEffect } from 'react';
 import MainLayout from '../../components/MainLayout'; // Adjust path if needed
-import { Typography, Table, Tag, Progress, Spin, notification, Empty, Input, Button } from 'antd';
+import { Typography, Table, Tag, Progress, Spin, notification, Empty, Input, Button, Space, Row, Col } from 'antd';
 import api from '../../../lib/api'; // Adjust path if needed
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
+import { isAxiosError } from 'axios';
 
 const { Title, Text } = Typography;
 const { Search } = Input;
 
-// Define expected data structure from the backend
-interface Project {
+// Define expected data structure from the backend (ProjectDetailsDto)
+interface UserBasic {
   id: string;
-  title: string;
-  status: 'Planning' | 'In Progress' | 'Completed' | 'On Hold';
-  mentor?: { firstName: string; lastName: string }; // Made mentor optional
-  interns?: { id: string; firstName: string; lastName: string }[]; // Made interns optional
-  milestones?: Milestone[]; // Made milestones optional
+  firstName?: string | null;
+  lastName?: string | null;
+  email: string;
 }
 
-interface Milestone {
+interface TaskBasic {
   id: string;
   title: string;
-  tasks?: Task[]; // Made tasks optional
-}
-
-interface Task {
-  id: string;
   status: 'To Do' | 'In Progress' | 'Done' | 'Blocked';
+  assignee?: UserBasic | null;
+  dueDate?: Date | string | null;
+}
+
+interface MilestoneBasic {
+  id: string;
+  title: string;
+  tasks?: TaskBasic[]; // CRITICAL: Use TaskBasic for tasks
+  createdAt: Date | string;
+}
+
+interface ProjectOverview { // Renamed to avoid conflict, closer to ProjectDetailsDto
+  id: string;
+  title: string;
+  description?: string | null;
+  status: string; // 'Planning' | 'In Progress' | 'Completed' | 'On Hold'
+  mentor?: UserBasic | null;
+  intern?: UserBasic | null; // The main assigned intern
+  milestones?: MilestoneBasic[];
 }
 
 export default function HrProjectsOverviewPage() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [filteredProjects, setFilteredProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<ProjectOverview[]>([]);
+  const [filteredProjects, setFilteredProjects] = useState<ProjectOverview[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-    const { status } = useSession();
+  const { status } = useSession();
+
   const fetchProjects = async () => {
     setLoading(true);
-
     try {
-      const res = await api.get('api/projects');
-      setProjects(res.data || []); // Ensure projects is always an array
+      const res = await api.get('/projects'); // CRITICAL FIX: Correct endpoint to fetch all projects for HR
+      setProjects(res.data || []);
       setFilteredProjects(res.data || []);
     } catch (error) {
-      console.error("Fetch Projects Error:", error); // Log the actual error
+      console.error("Fetch Projects Error:", error);
       notification.error({
         message: 'Failed to load projects',
-        description: 'Could not fetch project data. Please check logs or network connection.',
+        description: isAxiosError(error) ? (error.response?.data?.message || error.message) : 'Could not fetch project data. Please check logs or network connection.',
       });
       setProjects([]);
       setFilteredProjects([]);
@@ -57,106 +70,101 @@ export default function HrProjectsOverviewPage() {
     }
   };
 
- useEffect(() => {
+  useEffect(() => {
     if (status === 'authenticated') {
         fetchProjects();
-    } 
+    }
 }, [status]);
-if (typeof window === 'undefined') {
-    return (
-        <MainLayout>
-            <Spin size="large" tip="Initializing..." />
-        </MainLayout>
-    );
-}
+
 
   // Filter projects based on search term
   useEffect(() => {
     const lowerSearchTerm = searchTerm.toLowerCase();
     const filtered = projects.filter(proj =>
-      (proj.title && proj.title.toLowerCase().includes(lowerSearchTerm)) || // Check if title exists
-      (proj.mentor && `${proj.mentor.firstName} ${proj.mentor.lastName}`.toLowerCase().includes(lowerSearchTerm))
+      (proj.title && proj.title.toLowerCase().includes(lowerSearchTerm)) ||
+      (proj.mentor && `${proj.mentor.firstName || ''} ${proj.mentor.lastName || ''}`.toLowerCase().includes(lowerSearchTerm)) ||
+      (proj.intern && `${proj.intern.firstName || ''} ${proj.intern.lastName || ''}`.toLowerCase().includes(lowerSearchTerm))
     );
     setFilteredProjects(filtered);
   }, [searchTerm, projects]);
 
 
   // Helper to calculate project task progress with safety checks
-  const calculateProgress = (project: Project) => {
+  const calculateProgress = (project: ProjectOverview) => {
     let totalTasks = 0;
     let doneTasks = 0;
-    // --- Safety Check ---
     if (project.milestones && Array.isArray(project.milestones)) {
-project.milestones.forEach(milestone => {
- // If tasks are not loaded (backend fixed), this prevents crash
-if (milestone.tasks && Array.isArray(milestone.tasks)) {
- milestone.tasks.forEach(task => {
- totalTasks++;
- if (task?.status === 'Done') {
- doneTasks++;
- }
- }); }
- });
- } else {
-      // Return 0 if milestones are not loaded (expected behavior after the backend fix)
-      return { percent: 0, done: 0, total: 0 };
+      project.milestones.forEach(milestone => {
+        if (milestone.tasks && Array.isArray(milestone.tasks)) {
+          milestone.tasks.forEach(task => {
+            totalTasks++;
+            if (task?.status === 'Done') { // CRITICAL FIX: Check if task exists and has status
+              doneTasks++;
+            }
+          });
+        }
+      });
     }
-    // --------------------
     const percent = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
     return { percent, done: doneTasks, total: totalTasks };
   };
 
   // Define table columns
-  const columns: any[] = [ // Use any[] type for columns temporarily for debugging if needed
+  const columns: any[] = [
     {
       title: 'Project Title',
       dataIndex: 'title',
       key: 'title',
-      sorter: (a: Project, b: Project) => (a.title || '').localeCompare(b.title || ''), // Add safety check
-      render: (text: string, record: Project) => record.id ? <Link href={`/hr-dashboard/projects/${record.id}`}>{text || 'No Title'}</Link> : text || 'No Title', // Add safety check
+      sorter: (a: ProjectOverview, b: ProjectOverview) => (a.title || '').localeCompare(b.title || ''),
+      render: (text: string, record: ProjectOverview) => record.id ? <Link href={`/hr-dashboard/projects/${record.id}`}>{text || 'No Title'}</Link> : text || 'No Title', // CRITICAL FIX: Link to /hr-dashboard/projects/[id]
     },
     {
       title: 'Mentor',
       dataIndex: 'mentor',
       key: 'mentor',
-      render: (mentor: Project['mentor']) => mentor ? `${mentor.firstName} ${mentor.lastName}`: 'N/A',
-      sorter: (a: Project, b: Project) => {
-        const nameA = a.mentor ? `${a.mentor.firstName} ${a.mentor.lastName}` : '';
-        const nameB = b.mentor ? `${b.mentor.firstName} ${b.mentor.lastName}` : '';
+      render: (mentor: ProjectOverview['mentor']) => mentor ? `${mentor.firstName || ''} ${mentor.lastName || ''}`.trim() || mentor.email : 'N/A',
+      sorter: (a: ProjectOverview, b: ProjectOverview) => {
+        const nameA = a.mentor ? `${a.mentor.firstName || ''} ${a.mentor.lastName || ''}` : '';
+        const nameB = b.mentor ? `${b.mentor.firstName || ''} ${b.mentor.lastName || ''}` : '';
         return nameA.localeCompare(nameB);
       },
     },
     {
-      title: 'Interns Assigned',
-      dataIndex: 'interns',
-      key: 'interns',
-      render: (interns: Project['interns']) => interns?.length || 0,
-      align: 'center' as const,
+      title: 'Intern',
+      dataIndex: 'intern',
+      key: 'intern',
+      render: (intern: ProjectOverview['intern']) => intern ? `${intern.firstName || ''} ${intern.lastName || ''}`.trim() || intern.email : 'N/A',
+      sorter: (a: ProjectOverview, b: ProjectOverview) => {
+        const nameA = a.intern ? `${a.intern.firstName || ''} ${a.intern.lastName || ''}` : '';
+        const nameB = b.intern ? `${b.intern.firstName || ''} ${b.intern.lastName || ''}` : '';
+        return nameA.localeCompare(nameB);
+      },
     },
     {
-        title: 'Status',
-        dataIndex: 'status',
-        key: 'status',
-        filters: [
-            { text: 'Planning', value: 'Planning' },
-            { text: 'In Progress', value: 'In Progress' },
-            { text: 'Completed', value: 'Completed' },
-            { text: 'On Hold', value: 'On Hold' },
-        ],
-        onFilter: (value: string | number | boolean, record: Project) => record.status === value,
-        render: (status: string) => {
-            let color = 'default';
-            if (status === 'In Progress') color = 'processing';
-            else if (status === 'Completed') color = 'success';
-            else if (status === 'On Hold') color = 'warning';
-            return <Tag color={color}>{status || 'N/A'}</Tag>; // Add safety check
-        },
+      title: 'Status',
+      dataIndex: 'status',
+      key: 'status',
+      filters: [
+          { text: 'Active', value: 'Active' },
+          { text: 'In Progress', value: 'In Progress' }, // Assuming your backend returns this status
+          { text: 'Completed', value: 'Completed' },
+          { text: 'On Hold', value: 'On Hold' },
+          { text: 'Planning', value: 'Planning' }, // Assuming this status is also possible
+      ],
+      onFilter: (value: string | number | boolean, record: ProjectOverview) => record.status === value,
+      render: (status: string) => {
+          let color = 'default';
+          if (status === 'In Progress' || status === 'Active') color = 'processing';
+          else if (status === 'Completed') color = 'success';
+          else if (status === 'On Hold') color = 'warning';
+          else if (status === 'Planning') color = 'blue';
+          return <Tag color={color}>{status || 'N/A'}</Tag>;
+      },
     },
     {
       title: 'Task Progress',
       key: 'progress',
-      render: (_: any, record: Project) => {
-        // calculateProgress now has safety checks
+      render: (_: any, record: ProjectOverview) => {
         const { percent, done, total } = calculateProgress(record);
         return (
           <div style={{minWidth: '100px'}}>
@@ -166,14 +174,14 @@ if (milestone.tasks && Array.isArray(milestone.tasks)) {
         );
       },
     },
-     {
+    {
       title: 'Actions',
       key: 'actions',
-      render: (_: any, record: Project) => record.id ? ( // Add safety check for record.id
-<Link href={`/hr-dashboard/projects-overview/${record.id}`}>
+      render: (_: any, record: ProjectOverview) => record.id ? (
+        <Link href={`/hr-dashboard/projects/${record.id}`}> {/* CRITICAL FIX: Link to /hr-dashboard/projects/[id] */}
           <Button size="small">View Details</Button>
         </Link>
-      ) : null, // Render nothing if no ID
+      ) : null,
     },
   ];
 
@@ -183,7 +191,7 @@ if (milestone.tasks && Array.isArray(milestone.tasks)) {
       <Text>View the status and progress of all ongoing internship projects.</Text>
 
        <Search
-        placeholder="Search by project title or mentor name..."
+        placeholder="Search by project title, mentor name, or intern name..."
         allowClear
         enterButton="Search"
         size="large"
@@ -196,7 +204,7 @@ if (milestone.tasks && Array.isArray(milestone.tasks)) {
         <div style={{ textAlign: 'center', padding: '50px' }}> <Spin size="large" /></div>
       ) : (
         <Table
-          columns={columns} // This prop is correct
+          columns={columns}
           dataSource={filteredProjects}
           rowKey="id"
           locale={{ emptyText: <Empty description={searchTerm ? "No projects match your search." : "No projects found."} /> }}
@@ -206,4 +214,3 @@ if (milestone.tasks && Array.isArray(milestone.tasks)) {
     </MainLayout>
   );
 }
-

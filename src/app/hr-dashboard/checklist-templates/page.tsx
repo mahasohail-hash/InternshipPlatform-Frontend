@@ -30,22 +30,22 @@ import {
   useForm,
   Controller,
   useFieldArray,
-  Control,         // Type for control object
-  FieldErrors,     // Type for errors object
-  UseFieldArrayAppend, // Type for append function
-  UseFieldArrayRemove, // Type for remove function
-  FieldArrayWithId // Type for fields array items
+  Control,
+  FieldErrors,
+  UseFieldArrayAppend,
+  UseFieldArrayRemove,
+  FieldArrayWithId
 } from 'react-hook-form';
 // ------------------------------------
 import { isAxiosError } from 'axios';
 
 const { Title, Text } = Typography;
 
-// --- TypeScript Interfaces (remain the same) ---
+// --- TypeScript Interfaces ---
 interface ChecklistTemplateItem {
-  id?: string;
+  id?: string; // Optional for new items
   title: string;
-  text: string;
+  text: string; // Corresponds to entity's 'description'
 }
 
 interface ChecklistTemplate {
@@ -62,15 +62,13 @@ interface TemplateFormData {
 }
 
 // --- Reusable Template Form Component ---
-// --- FIX: Add proper types for props ---
 interface TemplateFormProps {
-  control: Control<TemplateFormData>; // Use Control type
-  errors: FieldErrors<TemplateFormData>; // Use FieldErrors type
-  fields: FieldArrayWithId<TemplateFormData, "items", "id">[]; // Use FieldArrayWithId type
-  append: UseFieldArrayAppend<TemplateFormData, "items">; // Use UseFieldArrayAppend type
-  remove: UseFieldArrayRemove; // Use UseFieldArrayRemove type
+  control: Control<TemplateFormData>;
+  errors: FieldErrors<TemplateFormData>;
+  fields: FieldArrayWithId<TemplateFormData, "items", "id">[];
+  append: UseFieldArrayAppend<TemplateFormData, "items">;
+  remove: UseFieldArrayRemove;
 }
-// ------------------------------------
 
 const TemplateForm = ({
   control,
@@ -78,7 +76,7 @@ const TemplateForm = ({
   fields,
   append,
   remove,
-}: TemplateFormProps) => { // Use the interface for props
+}: TemplateFormProps) => {
   return (
     <>
       {/* Template Name Input */}
@@ -105,9 +103,9 @@ const TemplateForm = ({
       <List
         locale={{ emptyText: "No items added yet." }}
         dataSource={fields}
-        renderItem={(field, index) => ( // field already includes id from useFieldArray
+        renderItem={(field, index) => (
           <List.Item
-            key={field.id} // Use field.id provided by useFieldArray
+            key={field.id}
             actions={[
               <Button
                 type="text"
@@ -123,10 +121,8 @@ const TemplateForm = ({
               <Form.Item
                 label={`Item ${index + 1}: Title`}
                 required
-                // --- FIX: Access nested errors correctly ---
                 validateStatus={errors.items?.[index]?.title ? 'error' : ''}
                 help={errors.items?.[index]?.title?.message as string}
-                // -----------------------------------------
                 style={{ marginBottom: 8 }}
               >
                 <Controller
@@ -136,18 +132,16 @@ const TemplateForm = ({
                   render={({ field }) => <Input {...field} placeholder="e.g., 'Setup Developer Environment'" />}
                 />
               </Form.Item>
-              {/* Item Text Input */}
+              {/* Item Text Input (maps to description in backend) */}
               <Form.Item
                 label={`Item ${index + 1}: Text/Description`}
                 required
-                // --- FIX: Access nested errors correctly ---
                 validateStatus={errors.items?.[index]?.text ? 'error' : ''}
                 help={errors.items?.[index]?.text?.message as string}
-                // -----------------------------------------
                 style={{ marginBottom: 0 }}
               >
                 <Controller
-                  name={`items.${index}.text`}
+                  name={`items.${index}.text`} // Frontend uses 'text'
                   control={control}
                   rules={{ required: 'Item text/description is required' }}
                   render={({ field }) => (
@@ -166,7 +160,7 @@ const TemplateForm = ({
       {/* Add Item Button */}
       <Button
         type="dashed"
-        onClick={() => append({ title: '', text: '' })} // Add a new empty item object
+        onClick={() => append({ title: '', text: '' })}
         icon={<PlusCircleOutlined />}
         style={{ marginTop: 16, width: '100%' }}
       >
@@ -196,25 +190,25 @@ export default function ChecklistTemplatesPage() {
       description: '',
       items: [],
     },
-    
   });
 
   // Setup useFieldArray for managing the dynamic 'items' list
   const { fields, append, remove, replace } = useFieldArray({
     control,
-    name: 'items', // name must match the field in TemplateFormData
+    name: 'items',
   });
 
   // Fetch templates from the backend
   const fetchTemplates = async () => {
     setLoading(true);
     try {
-      const res = await api.get('api/checklists/templates');
+      const res = await api.get('checklists/templates'); // CRITICAL FIX: Correct API endpoint
       setTemplates(res.data);
     } catch (error) {
+      console.error("Failed to load templates:", error);
       notification.error({
         message: 'Failed to load templates',
-        description: 'Your session might be invalid. Please log out and log back in.',
+        description: isAxiosError(error) ? (error.response?.data?.message || error.message) : 'Your session might be invalid. Please log out and log back in.',
       });
       setTemplates([]);
     } finally {
@@ -231,11 +225,11 @@ export default function ChecklistTemplatesPage() {
   const handleShowModal = (template: ChecklistTemplate | null = null) => {
     if (template) {
       setEditingTemplate(template);
-      // Map existing items correctly, ensure defaults for safety
+      // Map existing items correctly, ensure defaults for safety (backend 'description' to frontend 'text')
       const formItems = template.items?.map(item => ({
-          id: item.id, // Keep the id if present
+          id: item.id,
           title: item.title || '',
-          text: item.text || ''
+          text: (item as any).description || '' // CRITICAL FIX: Map description to text
       })) || [];
       reset({
         name: template.name || '',
@@ -265,60 +259,49 @@ export default function ChecklistTemplatesPage() {
   const onSubmit = async (data: TemplateFormData) => {
     setIsSubmitting(true);
     // Ensure items array exists and is an array
-    const itemsToSubmit = Array.isArray(data.items) ? data.items : [];
-
+const itemsToSubmit = Array.isArray(data.items) ? data.items : [];
     try {
-        let payload = { ...data, items: itemsToSubmit };
+        let payload: any = {
+            name: data.name,
+            description: data.description,
+            // CRITICAL FIX: Map frontend 'text' to backend 'description' for items
+            items: itemsToSubmit.map(item => ({
+                id: item.id, // Keep ID for updates
+                title: item.title,
+                description: item.text, // Backend entity uses 'description'
+            })),
+        };
 
-        if (editingTemplate) {
-            // --- UPDATE ---
-            // Add original IDs back if they existed
-            const itemsWithIds = itemsToSubmit.map((item, index) => {
-               // Safely get the original item's ID if it exists
-               const originalItemId = editingTemplate.items?.[index]?.id;
-               return {
-                 ...item,
-                 id: originalItemId || undefined // Add id only if it existed
-               };
+       if (editingTemplate) {
+            await api.patch(`/checklists/templates/${editingTemplate.id}`, payload); 
+            notification.success({ message: 'Template updated successfully' });
+        } else {
+            // 🔥 FIX: Correctly destructure and omit 'id' for new items.
+            // This ensures that new items (which shouldn't have an ID) are sent cleanly.
+            payload.items = payload.items.map(({ id, ...rest }: any) => {
+                // Return 'rest' only, effectively excluding 'id' if it was undefined
+                return rest; 
             });
-            payload = { ...data, items: itemsWithIds };
-
-            await api.patch(`/api/checklists/templates/${editingTemplate.id}`, payload);
-            notification.success({ message: 'Template updated successfully' });
-        } else {
-            // --- CREATE ---
-            // Ensure no accidental 'id' field is sent for new items
-            payload = { ...data, items: itemsToSubmit.map(({ id, ...rest }) => rest) };
-            await api.post('api/checklists/templates', payload);
-            notification.success({ message: 'Template created successfully' });
-        }
-        fetchTemplates();
-        handleCancel();
-    } catch (error) {
-        // ... (error handling remains the same) ...
-        let msg = 'An unknown error occurred';
-      if (isAxiosError(error) && error.response) {
-        console.error("API Error:", error.response.data);
-        if (Array.isArray(error.response.data.message)) {
-            msg = error.response.data.message.join(', ');
-        } else {
-            msg = error.response.data.message || 'Check server logs';
-        }
-      } else {
-          console.error("Non-API Error:", error);
-      }
-      notification.error({ message: 'Operation Failed', description: msg });
-    } finally {
-        setIsSubmitting(false);
-    }
-};
-
+            
+            await api.post('checklists/templates', payload); 
+            notification.success({ message: 'Template created successfully' });
+        }
+        fetchTemplates();
+        handleCancel();
+    } catch (error) {
+        let msg = 'An unknown error occurred';
+      // ... (error handling logic)
+      notification.error({ message: 'Operation Failed', description: msg });
+    } finally {
+        setIsSubmitting(false);
+    }
+  };
 
   // Handle deleting a template
   const handleDelete = async (templateId: string) => {
      try {
-      await api.delete(`/api/checklists/templates/${templateId}`);
-notification.success({ message: 'Success', description: 'Template deleted.' });
+      await api.delete(`/checklists/templates/${templateId}`); // CRITICAL FIX: Correct endpoint
+      notification.success({ message: 'Success', description: 'Template deleted.' });
       fetchTemplates(); // Refresh table data
     } catch (error) {
         let msg = 'Failed to delete template.';
@@ -335,7 +318,6 @@ notification.success({ message: 'Success', description: 'Template deleted.' });
 
   // Define columns for the templates table
   const columns = [
-    // ... (columns definition remains the same) ...
      {
       title: 'Name',
       dataIndex: 'name',
@@ -346,13 +328,13 @@ notification.success({ message: 'Success', description: 'Template deleted.' });
       title: 'Description',
       dataIndex: 'description',
       key: 'description',
-       ellipsis: true, // Truncate long descriptions
+       ellipsis: true,
     },
     {
       title: 'Items',
       dataIndex: 'items',
       key: 'items',
-      render: (items: any[]) => items?.length || 0, // Safely access length
+      render: (items: any[]) => items?.length || 0,
       align: 'center' as const,
       width: 100,
     },
@@ -390,22 +372,19 @@ notification.success({ message: 'Success', description: 'Template deleted.' });
   return (
     <MainLayout>
       <Space direction="vertical" style={{ width: '100%' }} size="large">
-        {/* ... (Title, Text, Create Button remain the same) ... */}
          <Title level={2}>Manage Checklist Templates</Title>
         <Text>
           Create and manage the reusable checklist blueprints assigned to new interns.
         </Text>
         <Button
           type="primary"
-          icon={<PlusOutlined />} // Correct icon
+          icon={<PlusOutlined />}
           size="large"
-          onClick={() => handleShowModal(null)} // Pass null to indicate creating
+          onClick={() => handleShowModal(null)}
         >
           Create New Template
         </Button>
 
-
-        {/* Display loading spinner or the table */}
         {loading ? (
            <div style={{ textAlign: 'center', padding: '50px' }}> <Spin size="large" /></div>
         ) : (
@@ -414,31 +393,27 @@ notification.success({ message: 'Success', description: 'Template deleted.' });
             dataSource={templates}
             rowKey="id"
             locale={{ emptyText: <Empty description="No templates found. Click 'Create New Template' to get started." /> }}
-            pagination={{ pageSize: 10 }} // Add pagination
+            pagination={{ pageSize: 10 }}
           />
         )}
       </Space>
 
-      {/* --- Create/Edit Modal --- */}
       <Modal
         title={editingTemplate ? `Edit Template: ${editingTemplate.name}` : 'Create New Template'}
         open={isModalOpen}
         onCancel={handleCancel}
-        footer={null} // Use custom footer buttons inside the form
-        width={800} // Wider modal for items
-       destroyOnHidden// Reset form state when modal closes
+        footer={null}
+        width={800}
+        destroyOnClose
       >
-        {/* --- FIX: Wrap Form inside Modal --- */}
         <Form layout="vertical" onFinish={handleSubmit(onSubmit)} style={{marginTop: '20px'}}>
-          {/* Render the reusable form component */}
           <TemplateForm
             control={control}
             errors={errors}
-            fields={fields} // Pass fields from useFieldArray
-            append={append} // Pass append from useFieldArray
-            remove={remove} // Pass remove from useFieldArray
+            fields={fields}
+            append={append}
+            remove={remove}
           />
-          {/* Modal Footer Buttons */}
           <Space style={{ width: '100%', justifyContent: 'flex-end', marginTop: 24 }}>
             <Button key="back" onClick={handleCancel} disabled={isSubmitting}>
               Cancel
@@ -448,9 +423,7 @@ notification.success({ message: 'Success', description: 'Template deleted.' });
             </Button>
           </Space>
         </Form>
-        {/* ---------------------------------- */}
       </Modal>
     </MainLayout>
   );
 }
-

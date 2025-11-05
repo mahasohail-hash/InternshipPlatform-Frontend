@@ -1,8 +1,11 @@
-// app/auth/signin/page.tsx
+// This file is largely redundant if `/auth/login` is your primary sign-in page.
+// NextAuth's `pages.signIn` configuration points to `/auth/login`.
+// Keeping it for completeness but recommending consolidation.
+
 'use client';
 import { Form, Input, Button, Card, Typography, Space, notification } from 'antd';
 import { MailOutlined, LockOutlined, LoginOutlined } from '@ant-design/icons';
-import { signIn } from 'next-auth/react'; // CRITICAL: Import the signIn function
+import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
 
@@ -10,20 +13,18 @@ const { Title, Text } = Typography;
 
 export default function SignInPage() {
     const router = useRouter();
-    const searchParams = useSearchParams(); // Used to check for authentication errors
+    const searchParams = useSearchParams();
     const error = searchParams.get('error');
 
-    // Display a notification if an authentication error occurs
     useEffect(() => {
         if (error) {
-            // Map common NextAuth error names to user-friendly messages
             let errorMessage = "An unknown login error occurred.";
             if (error === "CredentialsSignin") {
                 errorMessage = "Invalid email or password. Please try again.";
             } else if (error.includes("Could not reach backend API")) {
                 errorMessage = "Network Error: Could not connect to the server (port 3001).";
             } else {
-                errorMessage = error; // Use the specific error message thrown from the backend
+                errorMessage = decodeURIComponent(error); // Decode the error message
             }
             notification.error({
                 message: "Login Failed",
@@ -34,20 +35,16 @@ export default function SignInPage() {
     }, [error]);
 
     const onFinish = async (values: any) => {
-        // 1. Call the NextAuth signIn function
         const result = await signIn('credentials', {
-            redirect: false, // Prevents automatic redirect on success/failure
-            email: values.email, // Pass form values directly to NextAuth credentials
+            redirect: false,
+            email: values.email,
             password: values.password,
         });
 
-        // 2. Handle the result (redirect to dashboard or display error)
         if (result?.error) {
-            // Redirect with the error parameter to trigger the useEffect notification above
-            router.push(`/auth/signin?error=${result.error}`);
+            router.push(`/auth/login?error=${encodeURIComponent(result.error)}`); // Redirect to /auth/login
         } else {
-            // SUCCESS: Redirect to the main HR dashboard page
-            router.push('/hr-dashboard'); 
+            router.push('/'); // Redirect to root, middleware handles dashboard
         }
     };
 
@@ -61,7 +58,7 @@ export default function SignInPage() {
                 <Form
                     name="login_form"
                     initialValues={{ remember: true }}
-                    onFinish={onFinish} // CRITICAL: onFinish calls our async logic
+                    onFinish={onFinish}
                     layout="vertical"
                 >
                     <Form.Item

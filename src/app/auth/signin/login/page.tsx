@@ -12,12 +12,12 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const error = searchParams.get('error'); // Get error from URL
-  
+
   const [loading, setLoading] = useState(false);
 
   const onFinish = async (values: any) => {
     setLoading(true);
-    
+
     // Use NextAuth's signIn function
     const result = await signIn('credentials', {
       redirect: false, // We will handle the redirect manually
@@ -30,12 +30,14 @@ function LoginForm() {
     if (result?.ok) {
       // Success! Redirect to a default dashboard.
       // MainLayout will then see the new role and show the correct menu.
-      router.push('/intern/dashboard'); // Or '/hr/dashboard'
+      // The middleware handles redirection to the correct role-based dashboard after successful authentication.
+      router.push('/'); // Redirect to root, middleware will handle /hr/dashboard, /mentor/dashboard etc.
       router.refresh(); // Force refresh to get new session
     } else {
       // Failed login. Redirect back to login page with an error message.
-      // This uses the 'error' from your authOptions pages config.
-      router.replace('/auth/login?error=Invalid credentials');
+      // This uses the 'error' from your authOptions pages config or a custom error.
+      const errorMessage = result?.error || 'Invalid credentials. Please try again.';
+      router.replace(`/auth/login?error=${encodeURIComponent(errorMessage)}`);
     }
   };
 
@@ -44,12 +46,12 @@ function LoginForm() {
       <Title level={3} style={{ textAlign: 'center', marginBottom: 24 }}>
         Internship Platform Login
       </Title>
-      
+
       {/* Show an error message if the URL contains one */}
       {error && (
         <Alert
           message="Login Failed"
-          description={error}
+          description={decodeURIComponent(error)}
           type="error"
           showIcon
           style={{ marginBottom: 24 }}
@@ -63,7 +65,7 @@ function LoginForm() {
       >
         <Form.Item
           name="email"
-          rules={[{ required: true, message: 'Please input your Email!' }]}
+          rules={[{ required: true, message: 'Please input your Email!' }, { type: 'email', message: 'Please enter a valid email!' }]}
         >
           <Input
             prefix={<UserOutlined />}
@@ -118,4 +120,3 @@ export default function LoginPage() {
     </div>
   );
 }
-

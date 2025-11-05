@@ -1,37 +1,41 @@
 'use client';
 
 import { useSession, signOut } from 'next-auth/react';
-import { Button } from 'antd'; // Assuming Ant Design is installed
-import {  LogoutOutlined} from '@ant-design/icons';
+import { Button, Typography, Space } from 'antd'; // Assuming Ant Design is installed
+import { LogoutOutlined, UserOutlined } from '@ant-design/icons'; // Add UserOutlined
+import { UserRole } from '../../common/enums/user-role.enum'; // CRITICAL FIX: Correct import path
+
+const { Text, Paragraph } = Typography;
 
 export function UserStatus() {
   const { data: session, status } = useSession(); // The useSession hook gives you session data and loading status
 
   if (status === 'loading') {
-    return <p>Loading session...</p>;
+    return <Paragraph>Loading session...</Paragraph>;
   }
 
-  if (session) {
+  if (session && session.user) { // Ensure session.user exists
     // User is logged in
     return (
-      <div>
-        <p>Welcome back, {session.user?.name}!</p>
-        <p>You are logged in as: {session.user?.email} (Role: {session.user?.role})</p>
-                  <Button 
-              type="primary" 
-              icon={<LogoutOutlined />} 
-              onClick={() => signOut({ redirect: false })}>
-              Logout </Button>  
-              
-                  </div>
+      <Space direction="vertical">
+        <Paragraph>Welcome back, {session.user.name || session.user.email}!</Paragraph>
+        <Paragraph>You are logged in as: <Text strong>{session.user.email}</Text> (Role: <Text strong>{session.user.role}</Text>)</Paragraph>
+        <Button
+            type="primary"
+            icon={<LogoutOutlined />}
+            onClick={() => signOut({ redirect: false })}>
+            Logout
+        </Button>
+      </Space>
     );
-  };
+  }
 
   // User is not logged in
   return (
-    <div>
-      <p>You are not logged in.</p>
+    <Space direction="vertical">
+      <Paragraph>You are not logged in.</Paragraph>
       {/* You might provide a link to the sign-in page here */}
-    </div>
+      <Button type="primary" onClick={() => window.location.href = '/auth/login'}>Log In</Button>
+    </Space>
   );
 }

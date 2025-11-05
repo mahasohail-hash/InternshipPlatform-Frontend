@@ -24,9 +24,8 @@ a {
   box-sizing: border-box;
 }
 
-/* Custom styles for Ant Design layout */
+/* Custom styles for Ant Design layout (ensure these don't conflict with Tailwind if used) */
 .ant-layout-sider {
-  /* Override default Ant Design Sider background if needed, or stick to theme.dark */
   background-color: #001529 !important; /* Ant Design dark theme default */
 }
 
@@ -45,6 +44,11 @@ a {
 }
 
 /* For the logo div in Sider */
-.demo-logo-vertical {
+.logo-display { /* Use a more specific class name to avoid conflicts */
   transition: all 0.2s;
 }
+
+/* Add any other global styles or Tailwind directives here */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

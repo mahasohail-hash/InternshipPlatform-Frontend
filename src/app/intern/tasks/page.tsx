@@ -1,66 +1,120 @@
-// app/intern/tasks/page.tsx
 'use client';
 import { useState, useEffect } from 'react';
 import MainLayout from '../../components/MainLayout';
-import { Typography, Card, List, Checkbox, notification, Tag, Spin } from 'antd';
+import { Typography, Card, List, Checkbox, notification, Tag, Spin, Space, Alert, Result } from 'antd';
 import { CheckCircleOutlined, ClockCircleOutlined, SettingOutlined } from '@ant-design/icons';
 import api from '../../../lib/api';
 import { useSession } from 'next-auth/react';
+import { AxiosError } from 'axios';
 
 const { Title, Text } = Typography;
 
-// Mock Data Types (must match backend)
 interface Task {
     id: string;
     title: string;
     status: 'To Do' | 'In Progress' | 'Done' | 'Blocked';
-    dueDate: string;
-    milestone: { project: { title: string } };
+    dueDate?: string; // Made optional
+    milestone: {
+        id: string; // Add milestone ID
+        project: {
+            id: string; // Add project ID
+            title: string;
+        };
+    };
 }
 
 export default function InternTasksPage() {
-    const { data: session } = useSession();
+    const { data: session, status: sessionStatus } = useSession();
     const [tasks, setTasks] = useState<Task[]>([]);
     const [loading, setLoading] = useState(true);
-    // CRITICAL: Get internId from the logged-in session
-    const internId = (session?.user as any)?.id; 
+    const [error, setError] = useState<string | null>(null);
+
+    const internId = session?.user?.id;
 
     const fetchTasks = async () => {
-        if (!internId) return;
+        if (!internId) {
+            setLoading(false);
+            if (sessionStatus === 'unauthenticated') {
+                // Optionally redirect to login if unauthenticated and no ID
+                // router.push('/auth/login');
+            } else {
+                setError("Intern ID not available. Please ensure you are logged in correctly.");
+            }
+            return;
+        }
+
         setLoading(true);
+        setError(null);
         try {
-            // 1. Frontend calls GET endpoint with intern's ID
+            // CRITICAL: Frontend calls GET endpoint with intern's ID
             const res = await api.get(`/projects/intern/${internId}/tasks`);
             setTasks(res.data);
-        } catch (error) {
-            notification.error({ message: 'Error loading tasks' });
+        } catch (err) {
+            console.error("Error loading tasks:", err);
+            let message = "Failed to load tasks.";
+            if (err instanceof AxiosError) {
+                message = err.response?.data?.message || err.message;
+            } else if (err instanceof Error) {
+                message = err.message;
+            }
+            setError(message);
+            setTasks([]);
         } finally {
             setLoading(false);
         }
     };
 
     useEffect(() => {
-        fetchTasks();
-    }, [internId]);
+        if (sessionStatus === 'authenticated' && internId) {
+            fetchTasks();
+        } else if (sessionStatus === 'unauthenticated') {
+            setLoading(false); // Stop loading if unauthenticated
+        }
+    }, [internId, sessionStatus]); // Depend on internId and sessionStatus
 
     const handleStatusToggle = async (taskId: string, isDone: boolean) => {
         const newStatus = isDone ? 'Done' : 'In Progress';
-        
+
         try {
-            // 2. Frontend calls PATCH endpoint to update status
+            // CRITICAL: Frontend calls PATCH endpoint to update status
             await api.patch(`/projects/tasks/${taskId}/status`, { status: newStatus });
-            
-            // 3. Update UI state immediately (Optimistic Update)
-            setTasks(tasks.map(task => 
-                task.id === taskId ? { ...task, status: newStatus as any } : task
+
+            // Optimistic Update
+            setTasks(tasks.map(task =>
+                task.id === taskId ? { ...task, status: newStatus } : task
             ));
             notification.success({ message: `Task marked as ${newStatus}!` });
-        } catch (error) {
-            notification.error({ message: 'Update failed', description: 'Could not change task status.' });
+        } catch (err: any) {
+            console.error("Update task status failed:", err);
+            notification.error({ message: 'Update failed', description: err.response?.data?.message || 'Could not change task status.' });
         }
     };
-    
-    if (loading) return <MainLayout><Spin size="large" /></MainLayout>;
+
+    if (loading || sessionStatus === 'loading') {
+        return (
+            <MainLayout>
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '50vh' }}>
+                    <Spin size="large" tip="Loading your tasks..." />
+                </div>
+            </MainLayout>
+        );
+    }
+
+    if (error) {
+        return (
+            <MainLayout>
+                <Result status="error" title="Failed to Load Tasks" subTitle={error} />
+            </MainLayout>
+        );
+    }
+
+    if (tasks.length === 0) {
+        return (
+            <MainLayout>
+                <Alert message="No Tasks Assigned" description="You currently have no tasks assigned to you." type="info" showIcon />
+            </MainLayout>
+        );
+    }
 
     return (
         <MainLayout>
@@ -82,7 +136,7 @@ export default function InternTasksPage() {
                                     />
                                 }
                                 title={<Title level={5} style={{ margin: 0 }}>{item.title}</Title>}
-                                description={<Text type="secondary">Project: {item.milestone.project.title}</Text>}
+                                description={<Text type="secondary">Project: {item.milestone?.project?.title || 'N/A Project'}</Text>}
                             />
                             <div>
                                 <Tag color={item.status === 'Done' ? 'green' : item.status === 'In Progress' ? 'blue' : 'default'}>{item.status}</Tag>

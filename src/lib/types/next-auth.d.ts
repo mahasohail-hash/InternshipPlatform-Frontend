@@ -1,37 +1,37 @@
-import 'next-auth';
-import 'next-auth/jwt';
+import NextAuth, { DefaultSession, DefaultUser } from "next-auth";
+import { DefaultJWT } from "next-auth/jwt";
+import { UserRole } from '../src/common/enums/user-role.enum'; // CRITICAL FIX: Correct import path for UserRole
 
-
-interface AuthorizeUser {
-  id: string;
-  email: string;
-  name: string;
-  role: string;
-  accessToken: string;
+// 1. Define the custom User type that is consistent across `authorize` return, `JWT`, and `Session.user`
+interface CustomUser extends DefaultUser {
+    id: string; // UUID from backend
+    email: string;
+    role: UserRole; // Use our UserRole enum
+    firstName: string; // Added from backend response
+    lastName: string;  // Added from backend response
+    name: string; // Will be derived from firstName/lastName if not explicitly sent by backend
 }
 
-declare module 'next-auth' {
- 
-  interface Session {
-    accessToken?: string; // Token added to the root session object
-    user: {
-      id: string;
-      role: string;
-      // Include default properties like name, email, image if needed
-    } & DefaultSession['user']; 
-  }
+// 2. Extend the Session object (what useSession() returns)
+declare module "next-auth" {
+    interface Session extends DefaultSession {
+        user: CustomUser; // Use our custom user type here
+        accessToken: string; // Expose the JWT token from your NestJS backend at the top level
+    }
 
-  
-  interface User extends AuthorizeUser {}
+    // Also extend the User type, though Session.user is most important for client components
+    interface User extends CustomUser {}
 }
 
-declare module 'next-auth/jwt' {
-  /**
-   * Extends the built-in JWT token payload type
-   */
-  interface JWT {
-    accessToken?: string; // Backend access token
-    role?: string;        // User role
-    
-  }
+// 3. Extend the JWT Token (what is stored in the cookie and accessed in middleware)
+declare module "next-auth/jwt" {
+    interface JWT extends DefaultJWT {
+        // These properties are directly on the token payload
+        accessToken: string; // Your NestJS backend JWT
+        role: UserRole;        // User role (use enum)
+        id: string;          // User ID
+        email: string;
+        name: string;        // User's full name
+        // Add other properties that are directly stored in the JWT payload if needed
+    }
 }

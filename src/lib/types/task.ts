@@ -1,36 +1,34 @@
-// lib/types/task.ts
 import { Milestone } from './milestone';
-import { User } from './user';
-import type { Dayjs } from 'dayjs'; // <--- ADD THIS IMPORT for the Dayjs type
+import { UserBasic } from './user'; // Use UserBasic
 
 export interface Task {
   id: string;
-  name: string;
+  title: string;
   description?: string;
-  dueDate?: string;
-  status: 'Pending' | 'InProgress' | 'Completed' | 'Blocked';
-  priority: 1 | 2 | 3; // Low, Medium, High
-  milestoneId: string;
-  assigneeId?: string;
+  dueDate?: string; // CRITICAL FIX: This should be 'string' (ISO format from backend)
+  status: 'To Do' | 'In Progress' | 'Done' | 'Blocked'; // Use specific enum values
+  milestoneId: string; // Foreign key
+  assigneeId?: string; // Foreign key, can be optional for unassigned tasks
   milestone?: Milestone; // Optional, loaded via relations
-  assignee?: User; // Optional, loaded via relations
+  assignee?: UserBasic; // Optional, loaded via relations
+  createdAt?: string; // Add createdAt
+  updatedAt?: string; // Add updatedAt
 }
 
+// DTO for creating a task
 export interface CreateTaskPayload {
-  name: string;
+  title: string;
   description?: string;
-  dueDate?: string; // <--- FIX: This should be 'string'
-  status?: 'Pending' | 'InProgress' | 'Completed' | 'Blocked'; // Status might be optional on creation
-  priority?: 1 | 2 | 3; // Priority might be optional on creation
-  milestoneId: string;
-  assigneeId?: string;
+  dueDate?: string; // CRITICAL FIX: This should be 'string'
+  status?: 'To Do' | 'In Progress' | 'Done' | 'Blocked';
+  assignedToInternId?: string; // Assignee ID
 }
 
+// DTO for updating a task
 export interface UpdateTaskPayload {
-  name?: string;
+  title?: string;
   description?: string;
-     dueDate?: string; // <--- FIX: This should be 'string'
-  status?: 'Pending' | 'InProgress' | 'Completed' | 'Blocked';
-  priority?: 1 | 2 | 3;
-  assigneeId?: string | null; // Allow unassigning
+  dueDate?: string; // CRITICAL FIX: This should be 'string'
+  status?: 'To Do' | 'In Progress' | 'Done' | 'Blocked';
+  assignedToInternId?: string | null; // Allow unassigning
 }

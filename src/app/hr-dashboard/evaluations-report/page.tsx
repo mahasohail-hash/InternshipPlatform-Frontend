@@ -16,7 +16,7 @@ import {
   Select,
   DatePicker,
   Space,
-  Tooltip, // Correctly imported
+  Tooltip,
   Avatar,
   Row,
   Col
@@ -43,10 +43,10 @@ interface Evaluation {
   id: string;
   score: number;
   feedbackText: string;
-  type: 'Weekly Note' | 'Midpoint' | 'Final' | 'Self-Review';
-  createdAt: string; // FIX: Changed from 'date' to 'createdAt' to match backend
+  type: 'Weekly Note' | 'Midpoint Review' | 'Final Review' | 'Self-Review'; // Updated types
+  createdAt: string; // CRITICAL FIX: Changed from 'date' to 'createdAt' to match backend
   intern: UserRef;
-  mentor: UserRef;
+  mentor?: UserRef; // Mentor can be optional for Self-Review
 }
 interface FilterValues {
   internName?: string;
@@ -66,8 +66,7 @@ export default function HrEvaluationsReportPage() {
   const fetchEvaluations = async () => {
     setLoading(true);
     try {
-      
-      const urlToFetch = '/api/evaluations/report'; // This route MUST exist on your backend
+      const urlToFetch = '/evaluations'; // CRITICAL FIX: Correct API endpoint (Controller is 'evaluations')
       console.log('Attempting to fetch from URL:', urlToFetch);
       const res = await api.get(urlToFetch);
       setEvaluations(res.data || []);
@@ -75,7 +74,7 @@ export default function HrEvaluationsReportPage() {
       console.error("Fetch Evaluations Error:", error);
       notification.error({
         message: 'Failed to load evaluations',
-        description: 'Could not fetch data. The API endpoint was not found (404).',
+        description: 'Could not fetch data. Please check network and backend logs.',
       });
       setEvaluations([]); // Set to empty array on error
     } finally {
@@ -92,15 +91,14 @@ export default function HrEvaluationsReportPage() {
   const filteredEvaluations = useMemo(() => {
     return evaluations.filter(ev => {
       const internFullName = `${ev.intern?.firstName || ''} ${ev.intern?.lastName || ''}`.toLowerCase();
-      const mentorFullName = `${ev.mentor?.firstName || ''} ${ev.mentor?.lastName || ''}`.toLowerCase();
+      const mentorFullName = `${ev.mentor?.firstName || ''} ${ev.mentor?.lastName || ''}`.toLowerCase(); // Check if mentor exists
       
       const lowerInternFilter = filters.internName?.toLowerCase() || '';
       const lowerMentorFilter = filters.mentorName?.toLowerCase() || '';
       const selectedTypes = filters.type || [];
       const [startDate, endDate] = filters.dateRange || [null, null];
 
-      // FIX: Changed from 'ev.date' to 'ev.createdAt'
-      const evaluationDate = dayjs(ev.createdAt);
+      const evaluationDate = dayjs(ev.createdAt); // Use createdAt
 
       if (lowerInternFilter && !internFullName.includes(lowerInternFilter)) return false;
       if (lowerMentorFilter && !mentorFullName.includes(lowerMentorFilter)) return false;
@@ -111,7 +109,6 @@ export default function HrEvaluationsReportPage() {
     });
   }, [evaluations, filters]);
 
-  // FIX: Added 'setFilters(values)' to update the state
   const handleFilter = (values: FilterValues) => {
     setFilters(values);
   };
@@ -149,9 +146,8 @@ export default function HrEvaluationsReportPage() {
       width: 200,
     },
     {
-      // FIX: Changed 'dataIndex' and 'render' param to 'createdAt'
       title: 'Date',
-      dataIndex: 'createdAt',
+      dataIndex: 'createdAt', // CRITICAL FIX: Changed to 'createdAt'
       key: 'date',
       sorter: (a, b) => dayjs(a.createdAt).unix() - dayjs(b.createdAt).unix(),
       render: (createdAt: string) => (
@@ -166,17 +162,17 @@ export default function HrEvaluationsReportPage() {
       title: 'Type',
       dataIndex: 'type',
       key: 'type',
-      filters: [ 
+      filters: [
         { text: 'Weekly Note', value: 'Weekly Note' },
-        { text: 'Midpoint', value: 'Midpoint' },
-        { text: 'Final', value: 'Final' },
+        { text: 'Midpoint Review', value: 'Midpoint Review' },
+        { text: 'Final Review', value: 'Final Review' },
         { text: 'Self-Review', value: 'Self-Review' },
       ],
       onFilter: (value, record) => record.type === value,
       render: (type: Evaluation['type']) => {
         let color = 'default';
-        if (type === 'Midpoint') color = 'processing';
-        else if (type === 'Final') color = 'success';
+        if (type === 'Midpoint Review') color = 'processing';
+        else if (type === 'Final Review') color = 'success';
         else if (type === 'Weekly Note') color = 'blue';
         else if (type === 'Self-Review') color = 'purple';
         return <Tag color={color}>{type || 'Unknown'}</Tag>;
@@ -206,7 +202,6 @@ export default function HrEvaluationsReportPage() {
       width: 120,
     },
     {
-      // FIX: Correct 'ellipsis' syntax for custom 'render'
       title: 'Feedback',
       dataIndex: 'feedbackText',
       key: 'feedback',
@@ -214,9 +209,9 @@ export default function HrEvaluationsReportPage() {
         <Paragraph
           style={{ marginBottom: 0, maxWidth: '300px' }}
           ellipsis={{
-            tooltip: { 
-              title: text || '-',
-              placement: 'topLeft' 
+            tooltip: {
+              title: text || 'No feedback provided', // CRITICAL FIX: Correct tooltip object structure
+              placement: 'topLeft'
             }
           }}
         >
@@ -268,15 +263,14 @@ export default function HrEvaluationsReportPage() {
               <Form.Item name="type" label="Evaluation Type">
                 <Select mode="multiple" placeholder="Filter by Type(s)" allowClear style={{ width: '100%' }}>
                   <Option value="Weekly Note">Weekly Note</Option>
-                  <Option value="Midpoint">Midpoint</Option>
-                  <Option value="Final">Final</Option>
+                  <Option value="Midpoint Review">Midpoint Review</Option>
+                  <Option value="Final Review">Final Review</Option>
                   <Option value="Self-Review">Self-Review</Option>
                 </Select>
               </Form.Item>
             </Col>
             <Col xs={24} sm={12} md={6}>
               <Form.Item name="dateRange" label="Date Range">
-                 {/* Fixed typo '1f00%' to '100%' */}
                 <RangePicker style={{ width: '100%' }} />
               </Form.Item>
             </Col>
@@ -298,20 +292,20 @@ export default function HrEvaluationsReportPage() {
           columns={columns}
           dataSource={filteredEvaluations}
           rowKey="id"
-          locale={{ 
+          locale={{
             emptyText: (
-              <Empty 
+              <Empty
                 description={
-                  evaluations.length > 0 ? 
-                  "No evaluations match the current filters." : 
+                  evaluations.length > 0 ?
+                  "No evaluations match the current filters." :
                   "No evaluations found in the system."
-                } 
+                }
               />
             )
           }}
-          pagination={{ 
-            pageSize: 15, 
-            showSizeChanger: true, 
+          pagination={{
+            pageSize: 15,
+            showSizeChanger: true,
             pageSizeOptions: ['15', '30', '50'],
             showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} items`
           }}

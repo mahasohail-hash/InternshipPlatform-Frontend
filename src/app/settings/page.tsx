@@ -1,12 +1,12 @@
 'use client';
 
-import React from 'react';
-import MainLayout from '../components/MainLayout'; // Adjust path if needed
-import { Typography, Card, Form, Input, Button, notification, Spin, Row, Col } from 'antd';
+import React, { useState, useEffect } from 'react';
+import MainLayout from '../components/MainLayout';
+import { Typography, Card, Form, Input, Button, notification, Spin, Row, Col, Result } from 'antd';
 import { UserOutlined, MailOutlined, LockOutlined, SaveOutlined } from '@ant-design/icons';
 import { useSession } from 'next-auth/react';
-import api from '../../lib/api'; // Import your configured API client
-import { isAxiosError } from 'axios'; // Import isAxiosError
+import api from '../../lib/api';
+import { isAxiosError } from 'axios';
 
 const { Title, Text } = Typography;
 
@@ -14,30 +14,53 @@ export default function SettingsPage() {
   const { data: session, status } = useSession();
   const [profileForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
-  const [isPasswordSubmitting, setIsPasswordSubmitting] = React.useState(false); // Loading state
+  const [isPasswordSubmitting, setIsPasswordSubmitting] = React.useState(false);
+  const [isProfileSubmitting, setIsProfileSubmitting] = React.useState(false); // Add for profile form
 
-  // Placeholder for profile update
+  const userId = session?.user?.id; // Get current user ID
+
+  // Placeholder for profile update (requires backend endpoint)
   const handleUpdateProfile = async (values: any) => {
-    notification.info({ message: 'Update Profile Clicked (Not Implemented)', description: JSON.stringify(values) });
+    // This functionality is typically not critical for MVP.
+    // If implemented, it would call a PATCH /api/users/me endpoint.
+    notification.info({ message: 'Update Profile Clicked', description: 'This feature is currently not implemented on the backend.' });
+    // setIsProfileSubmitting(true);
+    // try {
+    //   await api.patch(`/users/${userId}`, {
+    //     firstName: values.firstName,
+    //     lastName: values.lastName,
+    //     // email usually not changeable here, or needs verification
+    //   });
+    //   notification.success({ message: 'Profile updated successfully!' });
+    //   // Refresh session if name changed
+    //   // await update(); // from useSession()
+    // } catch (error) {
+    //   // ... handle error
+    // } finally {
+    //   setIsProfileSubmitting(false);
+    // }
   };
 
-  // --- UPDATED: Calls the backend API ---
   const handleChangePassword = async (values: any) => {
     if (values.newPassword !== values.confirmPassword) {
       notification.error({ message: 'New passwords do not match!' });
       return;
     }
+    if (!userId) {
+        notification.error({ message: 'Authentication Error', description: 'User ID not found in session.' });
+        return;
+    }
+
     setIsPasswordSubmitting(true);
     try {
-      // Calls PATCH /api/users/me/password
+      // CRITICAL FIX: Calls PATCH /api/users/me/password
       await api.patch('/users/me/password', {
         currentPassword: values.currentPassword,
         newPassword: values.newPassword,
-        // confirmPassword is only needed for frontend validation, not usually sent
       });
       notification.success({ message: 'Password changed successfully!' });
       passwordForm.resetFields(); // Clear form
-    } catch (error) {
+    } catch (error: any) {
       console.error("Change Password Error:", error);
       let msg = 'Failed to change password.';
       if (isAxiosError(error) && error.response) {
@@ -48,24 +71,24 @@ export default function SettingsPage() {
       setIsPasswordSubmitting(false);
     }
   };
-  // --- END UPDATE ---
 
   // Set initial profile form values
-  React.useEffect(() => {
+  useEffect(() => {
     if (session?.user) {
       profileForm.setFieldsValue({
-        name: session.user.name,
+        firstName: session.user.firstName, // Assuming firstName exists on session.user
+        lastName: session.user.lastName,   // Assuming lastName exists on session.user
         email: session.user.email,
       });
     }
   }, [session, profileForm]);
 
   if (status === 'loading') {
-    return <MainLayout><div style={{ textAlign: 'center', padding: '50px' }}><Spin size="large" /></div></MainLayout>;
+    return <MainLayout><div style={{ textAlign: 'center', padding: '50px' }}><Spin size="large" tip="Loading settings..." /></div></MainLayout>;
   }
 
   if (!session) {
-     return <MainLayout><p>Please log in to view settings.</p></MainLayout>;
+     return <MainLayout><Result status="403" title="Access Denied" subTitle="Please log in to view settings." /></MainLayout>;
   }
 
   return (
@@ -78,14 +101,17 @@ export default function SettingsPage() {
          <Col xs={24} md={12}>
             <Card title="Profile Information">
                  <Form form={profileForm} layout="vertical" onFinish={handleUpdateProfile}>
-                    <Form.Item name="name" label="Name" rules={[{ required: true }]}>
-                        <Input prefix={<UserOutlined />} placeholder="Full Name" />
+                    <Form.Item name="firstName" label="First Name" rules={[{ required: true, message: 'First name is required!' }]}>
+                        <Input prefix={<UserOutlined />} placeholder="First Name" />
+                    </Form.Item>
+                    <Form.Item name="lastName" label="Last Name" rules={[{ required: true, message: 'Last name is required!' }]}>
+                        <Input prefix={<UserOutlined />} placeholder="Last Name" />
                     </Form.Item>
                     <Form.Item name="email" label="Email Address" rules={[{ required: true, type: 'email' }]}>
                         <Input prefix={<MailOutlined />} placeholder="Email" disabled />
                     </Form.Item>
                     <Form.Item>
-                        <Button type="primary" htmlType="submit" icon={<SaveOutlined />} disabled>
+                        <Button type="primary" htmlType="submit" icon={<SaveOutlined />} disabled={isProfileSubmitting || true}>
                             Save Profile (Not Implemented)
                         </Button>
                     </Form.Item>
@@ -146,4 +172,3 @@ export default function SettingsPage() {
     </MainLayout>
   );
 }
-

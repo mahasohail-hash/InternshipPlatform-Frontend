@@ -12,6 +12,7 @@ import {
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
 import { usePathname, useRouter } from 'next/navigation';
+import { UserRole } from '../../common/enums/user-role.enum'; // CRITICAL FIX: Correct import path
 
 const { Header, Sider, Content, Footer } = Layout;
 const { Title, Text } = Typography;
@@ -21,7 +22,9 @@ interface CustomSessionUser {
   id: string;
   name?: string;
   email: string;
-  role: 'HR' | 'MENTOR' | 'INTERN' | 'OBSERVER' | string;
+  role: UserRole; // Use the UserRole enum
+  firstName?: string; // Add if available in session.user
+  lastName?: string;  // Add if available in session.user
   accessToken?: string;
 }
 
@@ -51,9 +54,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
 
   // 1. Authentication Guard & Redirect
   useEffect(() => {
-    // FIX: Make path check more strict
+    // If not authenticated AND not on the login page, redirect to login.
     if (status === 'unauthenticated' && pathname !== '/auth/login') {
-      router.push('/auth/login');
+      router.replace('/auth/login'); // Use replace to avoid stacking login pages in history
     }
   }, [status, pathname, router]);
 
@@ -65,20 +68,31 @@ export default function MainLayout({ children }: MainLayoutProps) {
     );
   }
 
-  // Handle unauthenticated state or missing user
-  if (status === 'unauthenticated' || !user) {
-    // FIX: Make path check more strict
+  // If unauthenticated, allow the /auth/login page to render itself without the full layout.
+  // For any other unauthenticated page, the useEffect above will redirect.
+  if (status === 'unauthenticated') {
     if (pathname === '/auth/login') {
-      // Allow login page to render without the layout
       return <>{children}</>;
     }
-    // For any other page, show an error or redirect
-return (
+    // For other unauthenticated paths, useEffect should have redirected.
+    // This return is a fallback and typically won't be reached.
+    return (
         <div style={{ height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
             <Spin size="large" tip="Redirecting to login..." />
         </div>
-    );  }
+    );
+  }
 
+  // If authenticated but user object is missing (should not happen with correct NextAuth setup),
+  // this indicates a critical session error. Force re-login.
+  if (!user) {
+    router.replace('/auth/login?error=Session+data+missing');
+    return (
+        <div style={{ height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+            <Spin size="large" tip="Session data error, redirecting..." />
+        </div>
+    );
+  }
 
   // 2. Role-Based Navigation Logic
   const getMenuItems = (): MenuItem[] => {
@@ -89,7 +103,7 @@ return (
     ];
 
     // HR Menu Items
-    if (role === 'HR') {
+    if (role === UserRole.HR) {
       items.push(
         getItem('Intern Management', 'hr-management-group', <TeamOutlined />, [
           getItem(<Link href="/hr-dashboard/manage-interns">Manage Interns</Link>, '/hr-dashboard/manage-interns', <UserOutlined />),
@@ -101,20 +115,21 @@ return (
         ])
       );
     }
-    
+
     // MENTOR Menu Items
-    if (role === 'MENTOR') {
+    if (role === UserRole.MENTOR) {
       items.push(
         getItem('Project Management', 'mentor-projects-group', <ProjectOutlined />, [
           getItem(<Link href="/mentor/projects">My Projects</Link>, '/mentor/projects', <ContainerOutlined />),
           getItem(<Link href="/mentor/project/create">Define New Project</Link>, '/mentor/project/create', <PlusOutlined />),
         ]),
         getItem(<Link href="/mentor/evaluate">Submit Evaluation</Link>, '/mentor/evaluate', <SolutionOutlined />),
+        getItem(<Link href="/mentor/reports">Reports & Exports</Link>, '/mentor/reports', <FileTextOutlined />),
       );
     }
 
     // INTERN Menu Items
-    if (role === 'INTERN') {
+    if (role === UserRole.INTERN) {
       items.push(
         getItem(<Link href="/intern/tasks">My Tasks</Link>, '/intern/tasks', <ProjectOutlined />),
         getItem(<Link href="/intern/checklists">My Onboarding Checklist</Link>, '/intern/checklists', <CheckSquareOutlined />),
@@ -122,38 +137,47 @@ return (
       );
     }
 
-    // Settings
+    // OBSERVER Menu Items
+    if (role === UserRole.OBSERVER) {
+      items.push(
+        getItem(<Link href="/observer-dashboard">Overview</Link>, '/observer-dashboard', <DashboardOutlined />),
+      );
+    }
+
+    // Settings (Accessible to all authenticated users)
     items.push(
       getItem(<Link href="/settings">Settings</Link>, '/settings', <SettingOutlined />)
     );
-    
+
     return items;
   };
 
-  // 3. Route Matching Logic
+  // 3. Route Matching Logic for selectedKeys in Antd Menu
   const getSelectedKeys = (): string[] => {
     const items = getMenuItems();
-    const allKeys: string[] = [];
-    
+    const allPossibleKeys: string[] = [];
+
     const extractKeys = (menuItems: MenuItem[]) => {
       menuItems.forEach(item => {
         if (item && 'key' in item && typeof item.key === 'string' && item.key.startsWith('/')) {
-            allKeys.push(item.key);
+            allPossibleKeys.push(item.key);
         }
         if (item && 'children' in item && Array.isArray(item.children)) {
             extractKeys(item.children);
         }
       });
     };
-    
+
     extractKeys(items);
 
-    const matchingKeys = allKeys.filter(key => key !== '/' && pathname.startsWith(key));
-    const mostSpecificKey = matchingKeys.sort((a, b) => b.length - a.length)[0];
-
-    if (!mostSpecificKey) {
-      return [`/${user.role.toLowerCase()}/dashboard`];
+    // Find the most specific key that matches the current pathname
+    const matchingKeys = allPossibleKeys.filter(key => pathname.startsWith(key));
+    if (matchingKeys.length === 0) {
+        // Fallback to role-based dashboard if no specific match
+        return [`/${user.role.toLowerCase()}/dashboard`];
     }
+    // Sort by length to pick the most specific match (e.g., /hr-dashboard/manage-interns instead of /hr-dashboard)
+    const mostSpecificKey = matchingKeys.sort((a, b) => b.length - a.length)[0];
 
     return [mostSpecificKey];
   };
@@ -196,26 +220,22 @@ return (
           />
 
           <Space size="large">
-            <Button type="text" icon={<BellOutlined />} style={{ fontSize: '16px' }} />
-            <Button type="text" icon={<SettingOutlined />} style={{ fontSize: '16px' }} />
+            {/* Notification/Settings Buttons (Future Features) */}
+            <Button type="text" icon={<BellOutlined />} style={{ fontSize: '16px' }} title="Notifications (Future)" disabled />
+            <Button type="text" icon={<SettingOutlined />} style={{ fontSize: '16px' }} onClick={() => router.push('/settings')} title="Settings" />
+
+            {/* User Info and Logout */}
             <Avatar icon={<UserOutlined />} style={{ backgroundColor: colorPrimary }} />
-            <Text strong>{user.name || user.email || 'User'}</Text>
+            <Text strong>{user.firstName || user.name || user.email || 'User'}</Text>
             <Text type="secondary">({user.role})</Text>
-            
-            {/* --- THIS IS THE FIX ---
-              Adding `{ redirect: false }` stops NextAuth from reloading the page,
-              letting the `useEffect` guard above handle the redirect to `/auth/login`
-              cleanly and without a race condition.
-            {/* --- --- --- --- --- --- */}
-            <Button 
-              type="primary" 
-              icon={<LogoutOutlined />} 
-              onClick={() => signOut({ redirect: false })}
+
+            <Button
+              type="primary"
+              icon={<LogoutOutlined />}
+              onClick={() => signOut({ redirect: false })} // Correctly handles client-side logout
             >
               Logout
             </Button>
-            {/* --- --- --- --- --- --- */}
-
           </Space>
         </Header>
 

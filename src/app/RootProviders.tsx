@@ -1,26 +1,26 @@
-// internship-platform-frontend/src/app/RootProviders.tsx
 'use client';
 
 import React from 'react';
 // Correct import paths for components (adjust based on your exact structure)
-import AuthProvider from './components/auth-provider'; 
+import { SessionProvider } from 'next-auth/react'; // Directly import SessionProvider
 import MainLayout from './components/MainLayout';
 import { ConfigProvider, theme } from 'antd';
-import { AntdRegistry } from '@ant-design/nextjs-registry'; // Recommended Ant Design package
+import { AntdRegistry } from '@ant-design/nextjs-registry';
 
 // This component handles all client-side logic and context providers
 export default function RootProviders({ children }: { children: React.ReactNode }) {
   return (
-    <AuthProvider>
-      {/* Use AntdRegistry to ensure styles are injected correctly */}
-      <AntdRegistry> 
+    <SessionProvider>
+      <AntdRegistry>
         <ConfigProvider theme={{ algorithm: theme.defaultAlgorithm }}>
-          {/* MainLayout is also client-side because it uses useSession() */}
+          {/* If MainLayout is intended to wrap the entire authenticated app, place it here */}
+          {/* Note: If MainLayout itself handles session loading/redirects,
+           it should be inside the SessionProvider but before children. */}
           <MainLayout>
             {children}
           </MainLayout>
         </ConfigProvider>
       </AntdRegistry>
-    </AuthProvider>
+    </SessionProvider>
   );
 }

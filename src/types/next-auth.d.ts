@@ -4,12 +4,12 @@ import { DefaultJWT } from "next-auth/jwt";
 
 // 1. Define the custom User type we get from our authorize() function
 interface CustomUser extends DefaultUser {
-    id: string;
+    id: string; // UUID from backend
     email: string;
     role: 'HR' | 'MENTOR' | 'INTERN' | 'ADMIN' | 'OBSERVER'; // Your custom roles
-    accessToken: string; // The JWT from your NestJS backend
-    firstName: string;
-    lastName: string;
+    firstName: string; // Added from backend response
+    lastName: string;  // Added from backend response
+    // name: string; // Will be derived from firstName/lastName if not explicitly sent by backend
 }
 
 // 2. Extend the Session object (what useSession() returns)
@@ -26,8 +26,12 @@ declare module "next-auth" {
 // 3. Extend the JWT Token (what is stored in the cookie and accessed in middleware)
 declare module "next-auth/jwt" {
     interface JWT extends DefaultJWT {
-        // The token structure is slightly different: it holds the full user object
-        user: CustomUser; // Attach the full custom user object
-        accessToken: string;
+        // These properties are directly on the token payload
+        accessToken: string; // Your NestJS backend JWT
+        role: string;        // User role
+        id: string;          // User ID
+        email: string;
+        name: string;        // User's full name
+        // Add other properties that are directly stored in the JWT payload if needed
     }
 }
