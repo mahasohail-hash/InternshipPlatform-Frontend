@@ -1,4 +1,3 @@
-// app/hr-dashboard/page.tsx
 'use client';
 import React, { useState, useEffect, useCallback } from 'react';
 import MainLayout from '../components/MainLayout';
@@ -39,6 +38,7 @@ interface InternAtRisk {
   name: string;
   project: string;
   tasksOverdue: number;
+  reason: string;
   evaluationScore: number;
   status: 'At Risk' | 'Warning' | 'None';
 }
@@ -69,8 +69,9 @@ export default function HRDashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [isInternModalVisible, setIsInternModalVisible] = useState(false);
   const [isTemplateModalVisible, setIsTemplateModalVisible] = useState(false);
-  const [form] = Form.useForm();
-
+const [form] = Form.useForm();
+const [templateForm] = Form.useForm();
+const [internForm] = Form.useForm();
   const [summary, setSummary] = useState<any>(null);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
@@ -177,13 +178,29 @@ const internManagementColumns = [
       notification.success({ message: 'PDF Report Generated and Downloaded!' });
 
     } catch (error: any) {
-      console.error("PDF generation failed:", error.response?.data || error.message);
-      notification.error({ message: 'PDF Generation Failed', description: error.response?.data?.message || error.response?.data?.error || 'Could not generate PDF.' });
-    } finally {
-      setIsGeneratingPdf(false);
-      notification.destroy(); // Close indefinite loading notification
-    }
-  };
+        
+        // 🔥 CRITICAL FIX: Manually read the JSON error message if the response is not a PDF (4xx/5xx status)
+        if (error.response && error.response.data instanceof Blob && error.response.data.type === "application/json") {
+            const errorJson = await error.response.data.text();
+            const errorObject = JSON.parse(errorJson);
+            
+            console.error("PDF generation failed:", errorObject);
+            
+            notification.error({ 
+                message: `Report Failed (Status ${error.response.status})`, 
+                description: errorObject.message || 'Missing required intern data (GitHub/Evaluations).' 
+            });
+            
+        } else {
+            // Handle network or non-JSON errors
+            notification.error({ message: 'PDF Generation Failed', description: error.message });
+        }
+        
+    } finally {
+      setIsGeneratingPdf(false);
+      notification.destroy();
+    }
+  };
 
   // 1.3 --- FUNCTION TO FETCH ALL DASHBOARD DATA ---
   const fetchDashboardData = useCallback(async () => {
@@ -229,53 +246,65 @@ const internManagementColumns = [
   }, [session, role, status, isHR, fetchDashboardData, router]);
 
 
-  // --- FUNCTION TO CREATE A NEW INTERN (Called from Modal) ---
-  const handleCreateIntern = async (values: any) => {
-    try {
-      await api.post('/api/users/intern', {
-        firstName: values.firstName,
-        lastName: values.lastName,
-        email: values.email,
-        password: values.password,
-        role: 'INTERN' 
-      });
-
-      notification.success({ message: 'Intern Onboarded', description: `Successfully created intern ${values.firstName}.` });
-      form.resetFields(); // Clear form
-      setIsInternModalVisible(false); // Close modal
-      fetchDashboardData(); // Refresh all dashboard data
+// --- FUNCTION TO CREATE A NEW INTERN (Called from Modal) ---
+ const handleCreateIntern = async (submitEventData: any) => {
+let valuesToSend: any;
+ try {
+valuesToSend = await internForm.validateFields();
+ await api.post('/api/users/intern', {
+firstName: valuesToSend.firstName, 
+            lastName: valuesToSend.lastName,
+            email: valuesToSend.email,
+            password: valuesToSend.password,
+            role: 'INTERN' 
+        });
+notification.success({ message: 'Intern Onboarded', description: `Successfully created intern ${valuesToSend.firstName}.` });
+        internForm.resetFields(); 
+        setIsInternModalVisible(false); 
+        await fetchDashboardData();
     } catch (err: any) {
       console.error('Onboarding Failed:', err.response?.data || err);
-      notification.error({
-        message: 'Onboarding Failed',
-        description: err.response?.data?.message || err.response?.data?.error || err.message || 'The server could not create the intern.',
-      });
+     const apiMessage = err.response?.data?.message || err.message;
+
+        if (err.errorFields && err.errorFields.length > 0) {
+             notification.error({ message: 'Validation Error', description: 'Please type the required fields manually to avoid autofill bugs.' });
+        } else {
+             notification.error({ message: 'Onboarding Failed', description: apiMessage || 'Server communication error.' });
+        }
     }
-  };
+};
 
-  // --- FUNCTION TO CREATE A NEW CHECKLIST TEMPLATE (Called from Modal) ---
-  const handleCreateTemplate = async (values: any) => {
-    try {
-      const response = await api.post('/api/checklists/templates', {
-        name: values.name,
-        description: values.description,
-        items: values.items || [] 
-      });
+ // --- FUNCTION TO CREATE A NEW CHECKLIST TEMPLATE (Called from Modal) ---
+ const handleCreateTemplate = async (submitEventData: any) => {
+  let valuesToSend: any;
+ try {
+  valuesToSend = await templateForm.validateFields();
+ const response = await api.post('/api/checklists/templates', {
+ // Use the validated data object here
+ name: valuesToSend.name,
+ description: valuesToSend.description,
+ 
+ items: valuesToSend.items || [] 
+ });
 
-       notification.success({ message: 'Template Created', description: `Successfully created template "${response.data.name}".` });
-      form.resetFields();
+      notification.success({ message: 'Template Created', description: `Successfully created template "${response.data.name}".` });
+     templateForm.resetFields();
       setIsTemplateModalVisible(false);
       fetchDashboardData(); // Refresh dashboard (implicitly updates linked templates)
 
     } catch (err: any) {
-      console.error('Operation Failed:', err.response?.data || err);
-      notification.error({
-        message: 'Operation Failed',
-        description: err.response?.data?.message || err.response?.data?.error || err.message || 'The server could not create the template.',
-      });
-    }
-  };
-
+ console.error('Operation Failed:', err.response?.data || err);
+        // Handle validation errors (Ant Design throws the validation error object directly)
+        if (err.errorFields) {
+            notification.error({ message: 'Validation Failed', description: 'Please check the required fields.' });
+        } else {
+             notification.error({
+ message: 'Operation Failed',
+ description: err.response?.data?.message || err.message || 'Server error.',
+ });
+        }
+ }
+ };
 
   // --- RENDER PROTECTION ---
   if (status === 'loading' || (status === 'authenticated' && loading)) {
@@ -485,48 +514,104 @@ const internManagementColumns = [
 
       {/* --- MODAL 1: ONBOARD NEW INTERN --- */}
       <Modal
-        title={<Space><UserOutlined />Onboard New Intern</Space>}
-        open={isInternModalVisible}
-        onCancel={() => setIsInternModalVisible(false)}
-        footer={null} destroyOnHidden // CRITICAL FIX: `destroyOnHidden` instead of `destroyOnClose`
-      >
-        <Form form={form} layout="vertical" onFinish={handleCreateIntern} style={{ marginTop: 24 }}>
+        title={<Space><UserOutlined />Onboard New Intern</Space>}
+        open={isInternModalVisible}
+        onCancel={() => { setIsInternModalVisible(false); internForm.resetFields(); }}
+        footer={null} destroyOnHidden 
+      >
+        <Form 
+           form={internForm} 
+            layout="vertical" 
+            onFinish={handleCreateIntern} 
+            style={{ marginTop: 24 }}
+            onValuesChange={(changedValues, allValues) => {
+                if (changedValues.password !== undefined || changedValues.email !== undefined) {
+                    internForm.setFieldsValue(changedValues);
+                }
+            }}
+        >
           {/* CRITICAL FIX: Ensure 'name' properties match backend DTO field names */}
-          <Form.Item name="firstName" label="First Name" rules={[{ required: true, message: 'First name is required' }]}> <Input placeholder="e.g., Jane" /> </Form.Item>
-          <Form.Item name="lastName" label="Last Name" rules={[{ required: true, message: 'Last name is required' }]}> <Input placeholder="e.g., Doe" /> </Form.Item>
-          <Form.Item name="email" label="Email" rules={[{ required: true, message: 'Email is required' }, { type: 'email', message: 'Must be a valid email' }]}> <Input placeholder="e.g., jane.doe@company.com" /> </Form.Item>
-          <Form.Item name="password" label="Initial Password" rules={[{ required: true, message: 'Password is required' }]}> <Input.Password placeholder="Set an initial password" /> </Form.Item>
-          <Form.Item style={{ textAlign: 'right', marginTop: 16 }}>
-            <Space>
-              <Button onClick={() => setIsInternModalVisible(false)}>Cancel</Button>
-              <Button type="primary" htmlType="submit">Create Intern</Button>
-            </Space>
+          <Form.Item name="firstName" label="First Name" rules={[{ required: true, message: 'First name is required' }]}> 
+                <Input placeholder="e.g., Jane" autoComplete="off" /> 
           </Form.Item>
-        </Form>
-      </Modal>
+          <Form.Item name="lastName" label="Last Name" rules={[{ required: true, message: 'Last name is required' }]}> 
+                <Input placeholder="e.g., Doe" autoComplete="off" /> 
+          </Form.Item>
+          <Form.Item name="email" label="Email" rules={[{ required: true, message: 'Email is required' }, { type: 'email', message: 'Must be a valid email' }]}> 
+                <Input placeholder="e.g., jane.doe@company.com" autoComplete="off" /> 
+          </Form.Item>
+          <Form.Item name="password" label="Initial Password" rules={[{ required: true, message: 'Password is required' }]}> 
+                <Input.Password placeholder="Set an initial password" autoComplete="new-password" /> 
+          </Form.Item>
+          <Form.Item style={{ textAlign: 'right', marginTop: 16 }}>
+            <Space>
+              <Button onClick={() => setIsInternModalVisible(false)}>Cancel</Button>
+              <Button type="primary" htmlType="submit">Create Intern</Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
+
 
       {/* --- MODAL 2: CREATE CHECKLIST TEMPLATE --- */}
-      <Modal
-        title={<Space><ContainerOutlined />Create New Checklist Template</Space>}
-        open={isTemplateModalVisible}
-        onCancel={() => setIsTemplateModalVisible(false)}
-        footer={null} destroyOnHidden // CRITICAL FIX: `destroyOnHidden` instead of `destroyOnClose`
-      >
-        <Form form={form} layout="vertical" onFinish={handleCreateTemplate} style={{ marginTop: 24 }}>
-          <Form.Item name="name" label="Template Title" rules={[{ required: true, message: 'Template title is required' }]}><Input placeholder="e.g., General Software Onboarding" /></Form.Item>
-          <Form.Item name="description" label="Description (Optional)"> <Input.TextArea rows={2} placeholder="Briefly describe the purpose of this template" /> </Form.Item>
-
+     <Modal
+        title={<Space><ContainerOutlined />Create New Checklist Template</Space>}
+        open={isTemplateModalVisible}
+        onCancel={() => { setIsTemplateModalVisible(false); templateForm.resetFields(); }} 
+        footer={null} destroyOnHidden
+      >
+              <Form 
+            form={templateForm} 
+            layout="vertical" 
+            onFinish={handleCreateTemplate} 
+            style={{ marginTop: 24 }} 
+            onValuesChange={(changedValues) => {
+                if (changedValues.name !== undefined) {
+                    templateForm.setFieldsValue(changedValues);
+                }
+            }}
+            
+            
+            >
+          <Form.Item 
+                name="name" 
+                label="Template Title" 
+                rules={[{ required: true, message: 'Template title is required' }]}
+            > 
+                <Input 
+                    placeholder="e.g., General Software Onboarding"
+                    onChange={(e) => templateForm.setFieldsValue({ name: e.target.value })} 
+                /> 
+            </Form.Item>
+      <Form.Item 
+                name="description" 
+                label="Description (Optional)"
+            > 
+                {/* FIX 2: Attach onChange to ensure description is captured */}
+                <Input.TextArea 
+                    rows={2} 
+                    placeholder="Briefly describe the purpose of this template"
+                    onChange={(e) => templateForm.setFieldsValue({ description: e.target.value })}
+                /> 
+            </Form.Item>
           <Form.List name="items">
             {(fields, { add, remove }) => (
               <>
                 <Text strong>Checklist Items:</Text>
                 {fields.map(({ key, name, ...restField }) => (
                   <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                    <Form.Item {...restField} name={[name, 'title']} rules={[{ required: true, message: 'Item title is required' }]} style={{ flexGrow: 1 }}> <Input placeholder="e.g., Complete HR paperwork" /> </Form.Item>
-                    {/* Assuming the backend DTO for checklist items uses 'title' and 'text' or 'description' */}
-                    {/* If your DTO expects 'text' for the main description, you might add another input here: */}
-                    {/* <Form.Item {...restField} name={[name, 'text']} rules={[{ required: true, message: 'Item text/description is required' }]} style={{ flexGrow: 1 }}> <Input.TextArea rows={1} placeholder="Item text/description" /> </Form.Item> */}
+                    <Form.Item 
+                    {...restField}
+                     name={[name, 'title']} 
+                     rules={[{ required: true, message: 'Item title is required' }]} 
+                     style={{ flexGrow: 1 }}> 
+                     <Input placeholder="e.g., Complete HR paperwork"
+                     onBlur={(e) => templateForm.setFieldValue(['items', name, 'title'], e.target.value)}
+                     
+                     /> </Form.Item>
+                    
                     <Button type="text" danger onClick={() => remove(name)}> <PlusOutlined style={{transform: 'rotate(45deg)'}} /> </Button>
+                
                   </Space>
                 ))}
                 <Form.Item> <Button type="dashed" onClick={() => add({ title: '' })} block icon={<PlusOutlined />}>Add Item</Button> </Form.Item> {/* ADDED: Default title for new item */}
@@ -537,7 +622,7 @@ const internManagementColumns = [
           <Form.Item style={{ textAlign: 'right', marginTop: 16 }}>
             <Space>
               <Button onClick={() => setIsTemplateModalVisible(false)}>Cancel</Button>
-              <Button type="primary" htmlType="submit">Save Template</Button>
+              <Button type="primary" htmlType="submit">Save Template</Button>
             </Space>
           </Form.Item>
         </Form>

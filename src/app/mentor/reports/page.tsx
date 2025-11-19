@@ -49,7 +49,7 @@ export default function MentorReportsPage() {
         setLoadingInterns(true);
         try {
             // CRITICAL FIX: Fetch all users and filter for interns or use a dedicated intern endpoint
-            const res = await api.get('/users');
+            const res = await api.get('/users/interns');
             const validInterns = (res.data || []).filter((u: InternUser) => u.role === UserRole.INTERN);
             setInterns(validInterns);
         } catch (err: any) {
@@ -84,22 +84,18 @@ export default function MentorReportsPage() {
             });
 
             // Create a Blob from the response data
-            const blob = new Blob([response.data], { type: 'application/pdf' });
+            const blob = new Blob([response.data], { type: "application/pdf" });
+const url = URL.createObjectURL(blob);
+const link = document.createElement("a");
+link.href = url;
+link.download = `intern_final_packet.pdf`;
+link.click();
 
-            // Create a temporary URL for the Blob and trigger download
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `Intern_Report_${internId}.pdf`; // Suggested filename
-            document.body.appendChild(a);
-            a.click(); // Programmatically click the link
-            window.URL.revokeObjectURL(url); // Clean up the URL
-            document.body.removeChild(a); // Clean up the anchor tag
 
             notification.success({
                 message: 'Report Download Started',
                 description: 'Your PDF report is downloading now. Please check your downloads.',
-                duration: 5,
+                duration: 7,
             });
 
         } catch (error: any) {
@@ -124,7 +120,7 @@ export default function MentorReportsPage() {
             notification.error({
                 message: 'Download Failed',
                 description: errorMessage,
-                duration: 7,
+                duration: 9,
             });
         } finally {
             setIsGenerating(false);
@@ -184,7 +180,7 @@ export default function MentorReportsPage() {
                                     loading={isGenerating}
                                     icon={<DownloadOutlined />}
                                     style={{ width: '100%' }}
-                                    disabled={!form.getFieldValue('internId') || isGenerating}
+                                    //disabled={!form.getFieldValue('internId') || isGenerating}
                                 >
                                     Generate PDF
                                 </Button>

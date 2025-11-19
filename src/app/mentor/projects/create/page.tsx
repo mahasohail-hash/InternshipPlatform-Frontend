@@ -38,7 +38,7 @@ export default function CreateProjectPage() {
         setLoadingInterns(true);
         try {
             // CRITICAL FIX: Use the standardized and correct backend route
-            const res = await api.get('/users'); // Get all users
+            const res = await api.get('/users/interns'); // Get all users
             // Filter for interns
             const validInterns = res.data.filter((u: Intern) => u.role === UserRole.INTERN);
 

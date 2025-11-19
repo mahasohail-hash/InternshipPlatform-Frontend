@@ -1,57 +1,225 @@
 'use client';
-import MainLayout from '@/app/components/MainLayout'; // CRITICAL FIX: Corrected alias usage
+
+import MainLayout from '@/app/components/MainLayout';
 import {
   Typography,
-  List,
   Card,
-  Tag,
-  notification,
+  Col,
+  Row,
+  List,
   Button,
   Spin,
   Alert,
-  Row,
-  Col,
+  Tag,
   Space,
+  notification,
   Result,
+  Form,
+  Select,
+  Input,
+  Modal,
+  DatePicker,
 } from 'antd';
 import {
   ProjectOutlined,
   UserOutlined,
-  ClockCircleOutlined,
   PlusOutlined,
   EditOutlined,
+  ClockCircleOutlined,
+  MinusCircleOutlined,
 } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
-import api from '@/lib/api'; // CRITICAL FIX: Corrected alias usage
+import api from '@/lib/api';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { AxiosError } from 'axios';
-import { UserRole } from '../../../common/enums/user-role.enum'; // Import UserRole
+import { UserRole } from '../../../common/enums/user-role.enum';
+import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
+const { Option } = Select;
 
-interface InternBasic { // Define basic intern interface
+// ---------- Types ----------
+interface InternBasic {
   id: string;
   firstName: string;
   lastName: string;
+  email?: string;
 }
 
-interface MilestoneBasic { // Define basic milestone interface
-  id: string;
+interface TaskBasic {
   title: string;
-  tasks?: any[]; // Tasks array is optional or could be basic
+  dueDate: string;
+  assignedToInternId: string;
+}
+
+interface MilestoneBasic {
+  id?: string;
+  title: string;
+  tasks?: TaskBasic[];
 }
 
 interface Project {
   id: string;
   title: string;
   description?: string;
-  status: string; // 'Active' | 'Completed' | 'On Hold' etc.
-  intern?: InternBasic; // Project's primary intern (optional)
-  mentorId: string; // Add mentorId
+  status: string;
+  intern?: InternBasic;
+  mentorId: string;
   milestones: MilestoneBasic[];
 }
 
+interface ProjectCreationFormContentProps {
+  form: any;
+  interns: InternBasic[];
+  onInternChange: (id: string) => void;
+  loadingInterns: boolean;
+}
+
+// ---------- Reusable Form Component ----------
+const ProjectCreationFormContent: React.FC<ProjectCreationFormContentProps> = ({
+  form,
+  interns,
+  onInternChange,
+  loadingInterns,
+}) => (
+  <>
+    <Card title="Project Details" size="small" style={{ marginBottom: 15 }}>
+      <Form.Item
+        name="title"
+        label="Project Title"
+        rules={[{ required: true, message: 'Please input project title!' }]}
+      >
+        <Input />
+      </Form.Item>
+      <Form.Item name="description" label="Project Description">
+        <Input.TextArea rows={2} />
+      </Form.Item>
+      <Form.Item
+        name="internId"
+        label="Assign Intern"
+        rules={[{ required: true, message: 'Please select an intern!' }]}
+        help="All tasks will default to this intern"
+      >
+        <Select
+          placeholder="Select Intern"
+          onChange={onInternChange}
+          loading={loadingInterns}
+          disabled={loadingInterns}
+        >
+          {interns.map((intern) => (
+            <Option key={intern.id} value={intern.id}>
+              {intern.firstName} {intern.lastName} ({intern.email})
+            </Option>
+          ))}
+        </Select>
+      </Form.Item>
+    </Card>
+
+    <Title level={5}>Milestones & Tasks</Title>
+    <Form.List name="milestones">
+      {(fields, { add, remove }) => (
+        <Space direction="vertical" style={{ width: '100%' }}>
+          {fields.map(({ key: milestoneKey, name: milestoneName, ...milestoneRestField }) => (
+            <Card
+              key={milestoneKey}
+              size="small"
+              title={
+                form.getFieldValue(['milestones', milestoneName, 'title']) ||
+                `Milestone #${milestoneKey + 1}`
+              }
+              extra={<MinusCircleOutlined onClick={() => remove(milestoneName)} />}
+              style={{ width: '100%' }}
+            >
+              <Form.Item
+                {...milestoneRestField}
+                name={[milestoneName, 'title']}
+                rules={[{ required: true, message: 'Please input milestone title!' }]}
+                label="Milestone Title"
+              >
+                <Input size="small" />
+              </Form.Item>
+
+              <Form.List name={[milestoneName, 'tasks']}>
+                {(taskFields, { add: addTask, remove: removeTask }) => (
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    {taskFields.map(({ key: taskKey, name: taskName, ...taskRestField }) => (
+                      <Row key={taskKey} gutter={8} align="middle">
+                        <Col span={9}>
+                          <Form.Item
+                            {...taskRestField}
+                            name={[taskName, 'title']}
+                            rules={[{ required: true, message: 'Please input task title!' }]}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Input placeholder="Task Title" size="small" />
+                          </Form.Item>
+                        </Col>
+                        <Col span={7}>
+                          <Form.Item
+                            {...taskRestField}
+                            name={[taskName, 'dueDate']}
+                            rules={[{ required: true, message: 'Please select a due date!' }]}
+                            style={{ marginBottom: 0 }}
+                          >
+                            <DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" size="small" />
+                          </Form.Item>
+                        </Col>
+                        <Col span={6}>
+                          <Form.Item
+                            {...taskRestField}
+                            name={[taskName, 'assignedToInternId']}
+                            initialValue={form.getFieldValue('internId')}
+                            hidden
+                          >
+                            <Input />
+                          </Form.Item>
+                          <Text type="secondary" style={{ lineHeight: '24px', fontSize: '12px' }}>
+                            Assigned to:{' '}
+                            {interns.find((i) => i.id === form.getFieldValue('internId'))?.firstName ||
+                              'Project Intern'}
+                          </Text>
+                        </Col>
+                        <Col span={2}>
+                          <MinusCircleOutlined
+                            onClick={() => removeTask(taskName)}
+                            style={{ fontSize: '16px', color: '#ff4d4f' }}
+                          />
+                        </Col>
+                      </Row>
+                    ))}
+                    <Button
+                      type="dashed"
+                      onClick={() =>
+                        addTask({ assignedToInternId: form.getFieldValue('internId') })
+                      }
+                      block
+                      icon={<PlusOutlined />}
+                      size="small"
+                    >
+                      Add Task
+                    </Button>
+                  </Space>
+                )}
+              </Form.List>
+            </Card>
+          ))}
+          <Button
+            type="dashed"
+            onClick={() => add()}
+            block
+            icon={<PlusOutlined />}
+            style={{ marginTop: 10 }}
+          >
+            Add Milestone
+          </Button>
+        </Space>
+      )}
+    </Form.List>
+  </>
+);
+
+// ---------- Main Page ----------
 export default function MentorProjectsPage() {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
@@ -59,28 +227,52 @@ export default function MentorProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [form] = Form.useForm();
+  const [interns, setInterns] = useState<InternBasic[]>([]);
+  const [loadingInterns, setLoadingInterns] = useState(false);
+
   const mentorId = session?.user?.id;
   const mentorRole = session?.user?.role;
 
+  // ---- Intern List ----
+  const fetchInternsList = async () => {
+    setLoadingInterns(true);
+    try {
+      const res = await api.get('/users/interns');
+      setInterns(res.data);
+    } catch (err) {
+      notification.error({ message: 'Failed to load interns' });
+    } finally {
+      setLoadingInterns(false);
+    }
+  };
+
+  useEffect(() => {
+    if (sessionStatus === 'authenticated' && mentorRole === UserRole.MENTOR) {
+      fetchInternsList();
+    }
+  }, [sessionStatus, mentorRole]);
+
+  // ---- Fetch Projects ----
   const fetchProjects = async () => {
     if (!mentorId) {
-        setLoading(false);
-        setError("Mentor ID not available. Please log in as a mentor.");
-        return;
+      setLoading(false);
+      setError('Mentor ID not available. Please log in as a mentor.');
+      return;
     }
     setLoading(true);
     setError(null);
     try {
-      // CRITICAL FIX: Correct endpoint for mentor's projects
       const res = await api.get('/projects/mentor');
       setProjects(res.data || []);
     } catch (err: any) {
       console.error('Project fetch failed:', err);
       let message = 'Failed to load projects.';
       if (err instanceof AxiosError && err.response) {
-          message = err.response.data?.message || err.message;
+        message = err.response.data?.message || err.message;
       } else if (err instanceof Error) {
-          message = err.message;
+        message = err.message;
       }
       setError(message);
       notification.error({
@@ -96,27 +288,51 @@ export default function MentorProjectsPage() {
   useEffect(() => {
     if (sessionStatus === 'authenticated' && mentorRole === UserRole.MENTOR) {
       fetchProjects();
-    } else if (sessionStatus === 'unauthenticated' || (sessionStatus === 'authenticated' && mentorRole !== UserRole.MENTOR)) {
-        setLoading(false);
-        setError("Access Denied: You must be logged in as a Mentor to view projects.");
+    } else if (
+      sessionStatus === 'unauthenticated' ||
+      (sessionStatus === 'authenticated' && mentorRole !== UserRole.MENTOR)
+    ) {
+      setLoading(false);
+      setError('Access Denied: You must be logged in as a Mentor to view projects.');
     }
   }, [mentorId, sessionStatus, mentorRole]);
 
+  // ---- Create Project ----
+  const handleProjectCreation = async (values: any) => {
+    try {
+      const payload = {
+        ...values,
+        milestones: values.milestones.map((m: any) => ({
+          ...m,
+          tasks: m.tasks.map((t: any) => ({
+            ...t,
+            dueDate: dayjs(t.dueDate).format('YYYY-MM-DD'),
+          })),
+        })),
+      };
 
+      await api.post('/projects', payload);
+      notification.success({ message: 'Project created successfully!' });
+      setIsModalVisible(false);
+      form.resetFields();
+      fetchProjects();
+    } catch (error: any) {
+      notification.error({
+        message: 'Failed to create project',
+        description: error?.response?.data?.message || error.message,
+      });
+    }
+  };
+
+  // ---- Utility ----
   const getTotalTasks = (project: Project) =>
-    project.milestones.flatMap(m => m.tasks || []).length; // Safely access tasks
+    project.milestones.flatMap((m) => m.tasks || []).length;
 
+  // ---- Loading State ----
   if (loading || sessionStatus === 'loading') {
     return (
       <MainLayout>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            height: '300px',
-          }}
-        >
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
           <Space direction="vertical" align="center">
             <Spin size="large" tip="Loading your projects..." />
             <Typography.Text>Loading your projects...</Typography.Text>
@@ -126,36 +342,46 @@ export default function MentorProjectsPage() {
     );
   }
 
+  // ---- Error ----
   if (error) {
-      return (
-          <MainLayout>
-              <Result status="error" title="Failed to Load Projects" subTitle={error} />
-          </MainLayout>
-      );
-  }
-
-  // Final check for unauthorized access if error didn't catch it
-  if (sessionStatus === 'unauthenticated' || mentorRole !== UserRole.MENTOR) {
     return (
-        <MainLayout>
-            <Result status="403" title="Access Denied" subTitle="You do not have permission to view this page." />
-        </MainLayout>
+      <MainLayout>
+        <Result status="error" title="Failed to Load Projects" subTitle={error} />
+      </MainLayout>
     );
   }
 
+  // ---- Unauthorized ----
+  if (sessionStatus === 'unauthenticated' || mentorRole !== UserRole.MENTOR) {
+    return (
+      <MainLayout>
+        <Result
+          status="403"
+          title="Access Denied"
+          subTitle="You do not have permission to view this page."
+        />
+      </MainLayout>
+    );
+  }
+
+  // ---- Render ----
   return (
     <MainLayout>
       <Title level={2}>My Assigned Projects</Title>
       <Text type="secondary">
-        Overview of all projects defined for your assigned interns. Click "View
-        Tasks" to manage the Kanban board (placeholder).
+        Overview of all projects defined for your assigned interns. Click "View Tasks" to manage the
+        Kanban board (placeholder).
       </Text>
 
       <Button
         type="primary"
         icon={<PlusOutlined />}
-        style={{ margin: '30px 0' }} // Adjust margin
-        onClick={() => router.push('/mentor/project/create')}
+        style={{ margin: '30px 0' }}
+        onClick={() => {
+          setIsModalVisible(true);
+          form.resetFields();
+          form.setFieldsValue({ milestones: [{ tasks: [{}] }] });
+        }}
       >
         Define New Project
       </Button>
@@ -169,7 +395,7 @@ export default function MentorProjectsPage() {
         />
       ) : (
         <Row gutter={[16, 16]}>
-          {projects.map(project => (
+          {projects.map((project) => (
             <Col key={project.id} xs={24} sm={12} lg={8}>
               <Card
                 title={
@@ -181,9 +407,7 @@ export default function MentorProjectsPage() {
                   <Button
                     type="link"
                     icon={<EditOutlined />}
-                    onClick={() =>
-                      router.push(`/mentor/projects/${project.id}/edit`) // CRITICAL FIX: Correct path for edit
-                    }
+                    onClick={() => router.push(`/mentor/projects/${project.id}/edit`)}
                   >
                     Edit
                   </Button>
@@ -193,9 +417,13 @@ export default function MentorProjectsPage() {
                     type="primary"
                     key="tasks"
                     onClick={() =>
-                      project.intern?.id // Check if intern is assigned
+                      project.intern?.id
                         ? router.push(`/intern/tasks?internId=${project.intern.id}`)
-                        : notification.error({ message: 'No Intern Assigned', description: 'This project does not have a primary intern assigned to view tasks.' })
+                        : notification.error({
+                            message: 'No Intern Assigned',
+                            description:
+                              'This project does not have a primary intern assigned to view tasks.',
+                          })
                     }
                     icon={<ClockCircleOutlined />}
                   >
@@ -205,19 +433,52 @@ export default function MentorProjectsPage() {
               >
                 <Space direction="vertical" size={4}>
                   <Text>
-                    <UserOutlined /> Intern: {project.intern ? `${project.intern.firstName} ${project.intern.lastName}` : 'Not Assigned'}
+                    <UserOutlined /> Intern:{' '}
+                    {project.intern
+                      ? `${project.intern.firstName} ${project.intern.lastName}`
+                      : 'Not Assigned'}
                   </Text>
                   <Text>Milestones: {project.milestones.length}</Text>
                   <Text>Total Tasks: {getTotalTasks(project)}</Text>
-                  <Tag color={project.status === 'Active' ? 'blue' : 'green'}>
-                    {project.status}
-                  </Tag>
+                  <Tag color={project.status === 'Active' ? 'blue' : 'green'}>{project.status}</Tag>
                 </Space>
               </Card>
             </Col>
           ))}
         </Row>
       )}
+
+      {/* ---- Modal ---- */}
+      <Modal
+        title="Create New Intern Project"
+        open={isModalVisible}
+        onCancel={() => {
+          setIsModalVisible(false);
+          form.resetFields();
+        }}
+        footer={null}
+        width={700}
+        destroyOnClose
+      >
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleProjectCreation}
+          initialValues={{ milestones: [{ tasks: [{}] }] }}
+        >
+          <ProjectCreationFormContent
+            form={form}
+            interns={interns}
+            onInternChange={() => {}}
+            loadingInterns={loadingInterns}
+          />
+          <Form.Item style={{ marginTop: 20 }}>
+            <Button type="primary" htmlType="submit" size="large" block>
+              Create Project & Tasks
+            </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
     </MainLayout>
   );
 }

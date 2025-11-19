@@ -1,17 +1,16 @@
-'use client';
-import MainLayout from '../../../../components/MainLayout';
-import { Typography, Card, Spin, Alert, List, Tag, notification } from 'antd';
-import { GithubOutlined, PlusOutlined, MinusOutlined, CalendarOutlined, GitlabOutlined } from '@ant-design/icons';
-import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+// src/app/mentor/interns/[internId]/github/page.tsx
+"use client";
+
+import React, { useEffect, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { Card, Button, Spin, notification, Alert, Typography, Row, Col } from 'antd';
 import api from '../../../../../lib/api';
-import { AxiosError } from 'axios';
 
 const { Title, Text } = Typography;
 
 interface GitHubMetric {
   id: string;
-  githubUsername: string;
+  github_username: string;
   repoName: string;
   commits: number;
   additions: number;
@@ -19,69 +18,238 @@ interface GitHubMetric {
   fetchDate: string;
 }
 
+interface InternGithubStatus {
+  hasGithubUsername: boolean;
+  githubUsername?: string;
+  verified: boolean;
+}
+
 export default function InternGithubPage() {
   const params = useParams();
-  const rawInternId = params.internId;
-  const internId = Array.isArray(rawInternId) ? rawInternId[0] : rawInternId; // Ensure single string ID
-
-  const [githubData, setGithubData] = useState<GitHubMetric[] | null>(null);
+  const router = useRouter();
+  const { internId } = params;
+  const [githubData, setGithubData] = useState<GitHubMetric[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [githubStatus, setGithubStatus] = useState<InternGithubStatus | null>(null);
 
   useEffect(() => {
-    if (!internId) { setError('Intern ID not provided.'); setLoading(false); return; }
-    if (typeof internId !== 'string' || internId.length < 36) { // Basic UUID check
+    if (!internId) {
+      setError('Intern ID missing in URL.');
       setLoading(false);
-      setError("Error: Invalid intern ID format.");
       return;
     }
 
-    const fetchGithubData = async () => {
+    const fetchData = async () => {
+      setLoading(true);
+      setError(null);
+
       try {
-        setLoading(true); setError(null);
-        // CRITICAL FIX: Correct API endpoint
-        const response = await api.get<GitHubMetric[]>(`/analytics/github/${internId}`);
-        setGithubData(response.data);
-        if (response.data.length > 0) { notification.success({ message: `Loaded ${response.data.length} repo contributions.` }); }
-      } catch (err: any) {
-        let errorMessage = 'Failed to fetch GitHub data.';
-        if (err instanceof AxiosError && err.response) {
-            errorMessage = err.response.data?.message || err.response.data?.error || 'Ensure GitHub Token is valid and username configured.';
-        } else if (err instanceof Error) {
-            errorMessage = err.message;
+        // First check GitHub status
+        const statusRes = await api.get<InternGithubStatus>(`/users/interns/${internId}/github-status`);
+        setGithubStatus(statusRes.data);
+
+        if (!statusRes.data.hasGithubUsername) {
+          setError('GitHub username not set for this intern.');
+          setLoading(false);
+          return;
         }
-        setError(errorMessage);
-        console.error('GitHub Fetch Error:', err);
-        notification.error({ message: 'GitHub Data Error', description: errorMessage });
-      } finally { setLoading(false); }
+
+        if (!statusRes.data.verified) {
+          setError(`GitHub username "${statusRes.data.githubUsername}" is not valid or doesn't exist.`);
+          setLoading(false);
+          return;
+        }
+
+        // Try to fetch existing metrics
+        const metricsRes = await api.get<GitHubMetric[]>(`/github/intern/${internId}/metrics`);
+
+        if (metricsRes.data.length === 0) {
+          // If no metrics, fetch fresh data
+          try {
+            await api.post(`/github/intern/fetch/${internId}`);
+            // Fetch again after storing
+            const freshMetricsRes = await api.get<GitHubMetric[]>(`/github/intern/${internId}/metrics`);
+            setGithubData(freshMetricsRes.data);
+          } catch (err: any) {
+            console.error('Error fetching GitHub data:', err);
+            setError(err?.response?.data?.message || 'Failed to fetch GitHub data. Please check the GitHub username and try again.');
+          }
+        } else {
+          setGithubData(metricsRes.data);
+        }
+      } catch (err: any) {
+        console.error('Fetch Error:', err);
+        setError(err?.response?.data?.message || 'Failed to fetch data.');
+      } finally {
+        setLoading(false);
+      }
     };
-    fetchGithubData();
+
+    fetchData();
   }, [internId]);
 
-  if (loading) return <MainLayout><Spin size="large" tip="Loading GitHub Contributions..." /></MainLayout>;
-  if (error) return <MainLayout><Alert message="Error" description={error} type="error" showIcon /></MainLayout>;
-  if (!githubData || githubData.length === 0) return (
-    <MainLayout><Alert message="No GitHub Data Found" description="No contributions could be retrieved for this intern. Ensure their GitHub username is set and the GitHub token is configured in the backend." type="info" showIcon /></MainLayout>
-  );
+  const handleRefreshData = async () => {
+    if (!internId) return;
 
-  const internGithubUsername = githubData[0]?.githubUsername || 'N/A';
+    setLoading(true);
+    try {
+      await api.post(`/github/intern/fetch/${internId}`);
+      const res = await api.get<GitHubMetric[]>(`/github/intern/${internId}/metrics`);
+      setGithubData(res.data);
+      notification.success({ message: 'GitHub data refreshed successfully!' });
+    } catch (err: any) {
+      notification.error({
+        message: 'Failed to refresh GitHub data',
+        description: err?.response?.data?.message || 'Check intern\'s GitHub username and backend token validity.'
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div style={{ padding: 32, textAlign: 'center' }}>
+        <Spin size="large" tip="Loading GitHub data..." />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Alert type="error" message="Failed to load data" description={error} showIcon />
+        {!githubStatus?.hasGithubUsername && (
+          <Button
+            type="primary"
+            style={{ marginTop: 16 }}
+            onClick={() => router.push(`/mentor/interns/${internId}/edit`)}
+          >
+            Set GitHub Username
+          </Button>
+        )}
+        {githubStatus?.hasGithubUsername && !githubStatus?.verified && (
+          <div style={{ marginTop: 16 }}>
+            <Alert
+              type="warning"
+              message="GitHub Username Verification Failed"
+              description={`The GitHub username "${githubStatus.githubUsername}" is not valid or doesn't exist.`}
+              showIcon
+            />
+            <Button
+              type="primary"
+              style={{ marginTop: 16 }}
+              onClick={() => router.push(`/mentor/interns/${internId}/edit`)}
+            >
+              Update GitHub Username
+            </Button>
+          </div>
+        )}
+        {githubStatus?.hasGithubUsername && githubStatus?.verified && error.includes('Failed to fetch GitHub data') && (
+          <div style={{ marginTop: 16 }}>
+            <Alert
+              type="warning"
+              message="GitHub Data Fetch Failed"
+              description="We couldn't fetch GitHub data. This could be due to API rate limits or other issues."
+              showIcon
+            />
+            <Button
+              type="primary"
+              style={{ marginTop: 16, marginRight: 10 }}
+              onClick={handleRefreshData}
+            >
+              Try Again
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (githubData.length === 0 && githubStatus?.hasGithubUsername && githubStatus?.verified) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Alert
+          type="info"
+          message="No GitHub data available"
+          description={
+            <div>
+              <p>No GitHub contributions found for username: <strong>{githubStatus.githubUsername}</strong></p>
+              <p>This could be because:</p>
+              <ul>
+                <li>The username might not have any recent activity</li>
+                <li>GitHub API might be experiencing issues</li>
+              </ul>
+              <p>Try refreshing the data.</p>
+            </div>
+          }
+          showIcon
+        />
+        <Button
+          type="primary"
+          style={{ marginTop: 16, marginRight: 10 }}
+          onClick={handleRefreshData}
+        >
+          Refresh GitHub Data
+        </Button>
+      </div>
+    );
+  }
+
+  if (githubData.length === 0) {
+    return <div style={{ padding: 24 }}><Spin /></div>;
+  }
+
+  const internGithubUsername = githubData[0]?.github_username || 'N/A';
+  const totalCommits = githubData.reduce((sum, repo) => sum + repo.commits, 0);
+  const totalAdditions = githubData.reduce((sum, repo) => sum + repo.additions, 0);
+  const totalDeletions = githubData.reduce((sum, repo) => sum + repo.deletions, 0);
 
   return (
-    <MainLayout>
-      <Title level={2}><GithubOutlined /> GitHub Contribution Overview for {internGithubUsername}</Title>
-      <List
-        grid={{ gutter: 16, xs: 1, sm: 1, md: 2, lg: 3 }} dataSource={githubData}
-        renderItem={item => (
-          <List.Item>
-            <Card title={<Text strong><GitlabOutlined /> {item.repoName}</Text>} style={{ marginBottom: 16 }}>
-              <p><Text strong>Commits:</Text> <Tag color="blue">{item.commits}</Tag></p>
-              <p><Text strong>Additions:</Text> <Tag color="green"><PlusOutlined /> {item.additions}</Tag></p>
-              <p><Text strong>Deletions:</Text> <Tag color="red"><MinusOutlined /> {item.deletions}</Tag></p>
-              <p><Text type="secondary"><CalendarOutlined /> Last Fetched: {new Date(item.fetchDate).toLocaleDateString()}</Text></p>
+    <div style={{ padding: 24 }}>
+      <Title level={2}>
+        <span>📊 GitHub Contributions for {internGithubUsername}</span>
+      </Title>
+
+      <Card style={{ marginBottom: 16 }}>
+        <Row gutter={16}>
+          <Col span={8}>
+            <Text strong>Total Commits:</Text> {totalCommits}
+          </Col>
+          <Col span={8}>
+            <Text strong>Total Additions:</Text> {totalAdditions}
+          </Col>
+          <Col span={8}>
+            <Text strong>Total Deletions:</Text> {totalDeletions}
+          </Col>
+        </Row>
+        <Button
+          type="primary"
+          style={{ marginTop: 16 }}
+          onClick={handleRefreshData}
+          loading={loading}
+        >
+          Refresh GitHub Data
+        </Button>
+      </Card>
+
+      <Title level={3}>Repository Contributions</Title>
+      <Row gutter={[16, 16]}>
+        {githubData.map((repo) => (
+          <Col xs={24} sm={12} md={8} key={repo.id}>
+            <Card
+              title={repo.repoName}
+              style={{ marginBottom: 16 }}
+              onClick={() => router.push(`/mentor/interns/${internId}/github/${repo.repoName}`)}
+            >
+              <Text strong>Commits:</Text> {repo.commits}<br />
+              <Text strong>Additions/Deletions:</Text> +{repo.additions} / -{repo.deletions}<br />
+              <Text strong>Last Fetched:</Text> {new Date(repo.fetchDate).toLocaleDateString()}
             </Card>
-          </List.Item>
-        )}
-      />
-    </MainLayout>
+          </Col>
+        ))}
+      </Row>
+    </div>
   );
 }

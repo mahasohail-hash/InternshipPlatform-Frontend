@@ -1,4 +1,3 @@
-// src/types/internship.ts (or similar)
 
 export interface CreateInternChecklistPayload {
   internId: string;

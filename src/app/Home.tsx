@@ -1,9 +1,9 @@
-"use client"; // CRITICAL FIX: Mark this component as a Client Component
+'use client';
 
+import React, { useEffect } from 'react';
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
-import { Spin } from "antd"; // Import Spin for loading indicator
+import { Spin } from "antd"; 
 
 export default function HomePage() {
   const { data: session, status } = useSession();

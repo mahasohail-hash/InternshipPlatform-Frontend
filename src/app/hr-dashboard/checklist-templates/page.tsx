@@ -202,8 +202,8 @@ export default function ChecklistTemplatesPage() {
   const fetchTemplates = async () => {
     setLoading(true);
     try {
-      const res = await api.get('checklists/templates'); // CRITICAL FIX: Correct API endpoint
-      setTemplates(res.data);
+      const res = await api.get('/checklists/templates'); // CRITICAL FIX: Correct API endpoint
+     setTemplates(res.data || []);
     } catch (error) {
       console.error("Failed to load templates:", error);
       notification.error({
@@ -283,7 +283,7 @@ const itemsToSubmit = Array.isArray(data.items) ? data.items : [];
                 return rest; 
             });
             
-            await api.post('checklists/templates', payload); 
+            await api.post('/checklists/templates', payload); 
             notification.success({ message: 'Template created successfully' });
         }
         fetchTemplates();
@@ -427,3 +427,4 @@ const itemsToSubmit = Array.isArray(data.items) ? data.items : [];
     </MainLayout>
   );
 }
+

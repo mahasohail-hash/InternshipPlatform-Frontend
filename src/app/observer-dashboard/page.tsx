@@ -1,4 +1,4 @@
-'use client'; // CRITICAL: This needs to be a client component to use MainLayout
+'use client'; 
 
 import React from 'react';
 import MainLayout from '../components/MainLayout'; // Import MainLayout

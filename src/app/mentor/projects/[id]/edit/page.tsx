@@ -67,7 +67,7 @@ export default function EditProjectPage() {
     const fetchInterns = async () => {
       setLoadingInterns(true);
       try {
-        const res = await api.get<Intern[]>('/users'); // Get all users, then filter for interns
+        const res = await api.get<Intern[]>('/users/interns'); // Get all users, then filter for interns
         setInterns(res.data.filter(u => (u as any).role === UserRole.INTERN));
       } catch (err: any) {
         console.error("Failed to load interns for project edit:", err);

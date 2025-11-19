@@ -1,7 +1,5 @@
-// --- IMPORT REQUIRED TYPES ---
 import { UserBasic } from './user'; // Import the UserBasic interface from user.ts (defined below)
 import { Milestone } from './milestone'; // Import the Milestone interface from milestone.ts
-// --- END IMPORT REQUIRED TYPES ---
 
 export interface Project {
   id: string;

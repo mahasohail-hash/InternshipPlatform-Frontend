@@ -10,7 +10,6 @@ import { useSession } from 'next-auth/react';
 import api from '../../../lib/api';
 import { isAxiosError } from 'axios';
 
-// CRITICAL FIX 1: Correct Import Path for EvaluationType and UserRole
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { EvaluationType } from '../../../common/enums/evaluation-type.enum';
 const { Title, Paragraph, Text } = Typography;

@@ -1,19 +1,15 @@
-// src/common/types/checklist.ts (or wherever you manage frontend types)
 
-// Assuming you also need types for User and ChecklistTemplate in the frontend
 export interface UserFrontendType {
   id: string;
-  email: string; // Or whatever minimal user data your frontend needs
-  // ... other exposed properties
+  email: string; 
 }
 
 export interface ChecklistTemplateFrontendType {
   id: string;
-  name: string; // Or other template properties
-  // ... other exposed properties
+  name: string; 
+
 }
 
-// And the InternChecklistItemFrontendType as previously defined
 export interface InternChecklistItemFrontendType {
   id: string;
   title: string;
@@ -25,19 +21,16 @@ export interface InternChecklistItemFrontendType {
   updatedAt: string;
 }
 
-// Now the InternChecklistFrontendType
 export interface InternChecklistFrontendType {
-  id: string; // From @PrimaryGeneratedColumn
-  internId: string; // Foreign key
-  templateId: string; // Foreign key
+  id: string; 
+  internId: string; 
+  templateId: string; 
 
-  // The 'intern' (User) and 'template' (ChecklistTemplate) objects
-  // would usually be nested or hydrated by your API.
-  // Define them as the frontend types, assuming your API sends them this way.
-  intern?: UserFrontendType; // Make optional if API doesn't always include it
-  template?: ChecklistTemplateFrontendType; // Make optional
+  
+  intern?: UserFrontendType; 
+  template?: ChecklistTemplateFrontendType;
 
-  items?: InternChecklistItemFrontendType[]; // Array of items, make optional if not always loaded
-  createdAt: string; // Dates typically come as ISO strings from API
-  updatedAt: string; // Dates typically come as ISO strings from API
+  items?: InternChecklistItemFrontendType[]; 
+  createdAt: string;
+  updatedAt: string; 
 }

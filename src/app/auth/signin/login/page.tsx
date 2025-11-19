@@ -4,26 +4,24 @@ import React, { useState, Suspense } from 'react';
 import { Form, Input, Button, Card, Typography, Alert, Spin } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { signIn } from 'next-auth/react';
-import { useRouter, useSearchParams } from 'next/navigation';
-
+import { useRouter, useSearchParams } from 'next/navigation'; 
+//import form from 'antd/es/form';
 const { Title } = Typography;
 
 function LoginForm() {
+  const [form] = Form.useForm();
+
   const router = useRouter();
   const searchParams = useSearchParams();
-  const urlError = searchParams.get('error'); // Get error from URL (for external redirects)
+  const error = searchParams.get('error'); // Get error from URL
 
   const [loading, setLoading] = useState(false);
-  const [form] = Form.useForm();
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const onFinish = async (values: any) => {
     setLoading(true);
-    setErrorMessage(null); // Clear any previous errors
 
-    // Use NextAuth's signIn function
     const result = await signIn('credentials', {
-      redirect: false, // We will handle the redirect manually
+      redirect: false,
       email: values.email,
       password: values.password,
     });
@@ -31,20 +29,19 @@ function LoginForm() {
     setLoading(false);
 
     if (result?.ok) {
-      // Success! Redirect to a default dashboard.
-      // MainLayout will then see the new role and show the correct menu.
-      // The middleware handles redirection to the correct role-based dashboard after successful authentication.
-      router.push('/'); // Redirect to root, middleware will handle /hr/dashboard, /mentor/dashboard etc.
-      router.refresh(); // Force refresh to get new session
+      router.push('/');
+      router.refresh();
     } else {
-      // Failed login. Show error inline without redirecting
-      const error = result?.error || 'Invalid credentials. Please try again.';
-      setErrorMessage(error);
-      
-      // Clear the password field for security
-      form.setFieldsValue({ password: '' });
+      // Failed login. Redirect back to login page with an error message.
+      // This uses the 'error' from your authOptions pages config or a custom error.
+      const errorMessage = result?.error || 'Invalid credentials. Please try again.';
+      router.replace(`/auth/login?error=${encodeURIComponent(errorMessage)}`);
     }
   };
+
+  function setErrorMessage(arg0: null): void {
+    throw new Error('Function not implemented.');
+  }
 
   return (
     <Card style={{ width: 400, margin: 'auto' }}>
@@ -52,27 +49,11 @@ function LoginForm() {
         Internship Platform Login
       </Title>
 
-      {/* Show an error message if the URL contains one (for external redirects) */}
-      {urlError && (
+      {/* Show an error message if the URL contains one */}
+      {error && (
         <Alert
           message="Login Failed"
-          description={decodeURIComponent(urlError)}
-          type="error"
-          showIcon
-          style={{ marginBottom: 24 }}
-          closable
-          onClose={() => {
-            // Remove error from URL when closed
-            router.replace('/auth/signin/login');
-          }}
-        />
-      )}
-
-      {/* Show inline error message from form submission */}
-      {errorMessage && (
-        <Alert
-          message="Login Failed"
-          description={errorMessage}
+          description={decodeURIComponent(error)}
           type="error"
           showIcon
           style={{ marginBottom: 24 }}
@@ -122,10 +103,7 @@ function LoginForm() {
   );
 }
 
-/**
- * Main page component.
- * This sets up the centered layout and Suspense boundary.
- */
+
 export default function LoginPage() {
   return (
     <div
@@ -137,7 +115,9 @@ export default function LoginPage() {
         background: '#f0f2f5',
       }}
     >
-      {/* Suspense is required to use useSearchParams() in the component above */}
+      {/* Suspense is required to use useSearchParams() in the component above,
+          but since we removed useSearchParams, it's technically not strictly needed here
+          if LoginForm itself handles all internal state. However, it doesn't hurt. */}
       <Suspense fallback={<Spin size="large" />}>
         <LoginForm />
       </Suspense>
