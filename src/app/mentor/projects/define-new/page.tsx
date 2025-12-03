@@ -1,84 +1,142 @@
-'use client';
-
-import { useState } from 'react';
+"use client";
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Form, Input, Button, message, Typography, Card } from 'antd';
+import { Form, Input, Button, notification, Typography, Card, Spin } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
+import api from '@/lib/api'; // Using your API client
+import { useSession } from 'next-auth/react';
+import { AxiosError } from 'axios';
+import MainLayout from '../../../components/MainLayout'; // Import your layout
 
 const { Title } = Typography;
 const { TextArea } = Input;
+
+// --- Type Definitions ---
+interface ProjectFormValues {
+  title: string;
+  description: string;
+}
+// --- End Type Definitions ---
 
 export default function DefineNewProjectPage() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { data: session, status: sessionStatus } = useSession();
 
-  const onFinish = async (values: { title: string; description: string }) => {
+  // --- Form Submission Handler ---
+  const onFinish = useCallback(async (values: ProjectFormValues) => {
     setLoading(true);
     try {
-      // Assumes you have a way to handle auth (e.g., a custom fetch wrapper)
-      const response = await fetch('/api/projects', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // 'Authorization': 'Bearer YOUR_JWT_TOKEN'
-        },
-        body: JSON.stringify(values),
+      // Use your API client for consistent error handling and auth
+      await api.post('/projects', values);
+
+      notification.success({
+        message: 'Project Created',
+        description: 'Your project has been successfully created.'
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to create project');
+      router.push('/mentor/dashboard');
+    } catch (error) {
+      console.error('Project creation error:', error);
+
+      let errorMessage = 'An unexpected error occurred.';
+
+      if (error instanceof AxiosError) {
+        errorMessage = error.response?.data?.message ||
+                      error.message ||
+                      'Failed to create project.';
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
       }
 
-      message.success('Project created successfully!');
-      router.push('/mentor/dashboard'); // Redirect to mentor dashboard
-    } catch (error) {
-      console.error(error);
-      message.error('An error occurred. Please try again.');
+      notification.error({
+        message: 'Creation Failed',
+        description: errorMessage
+      });
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
+  // --- Loading State ---
+  if (sessionStatus === 'loading') {
+    return (
+      <MainLayout>
+        <Spin size="large" tip="Loading..." />
+      </MainLayout>
+    );
+  }
+
+  // --- Unauthorized Access ---
+  if (sessionStatus !== 'authenticated') {
+    return (
+      <MainLayout>
+        <Card>
+          <Title level={3}>Access Denied</Title>
+          <p>You must be logged in to create a project.</p>
+        </Card>
+      </MainLayout>
+    );
+  }
+
+  // --- Main Render ---
   return (
-    <Card>
-      <Title level={3}>Define New Project</Title>
-      <Form
-        form={form}
-        layout="vertical"
-        onFinish={onFinish}
-        requiredMark={false}
-      >
-        <Form.Item
-          name="title"
-          label="Project Title"
-          rules={[{ required: true, message: 'Please enter a project title' }]}
-        >
-          <Input placeholder="e.g., AI-Powered Feedback Analyzer" />
-        </Form.Item>
+    <MainLayout>
+      <Card style={{ maxWidth: 800, margin: '0 auto' }}>
+        <Title level={3}>Define New Project</Title>
 
-        <Form.Item
-          name="description"
-          label="Project Description"
-          rules={[{ required: true, message: 'Please enter a description' }]}
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={onFinish}
+          requiredMark={false}
         >
-          <TextArea
-            rows={6}
-            placeholder="Describe the project goals, tech stack, and expected deliverables."
-          />
-        </Form.Item>
-
-        <Form.Item>
-          <Button
-            type="primary"
-            htmlType="submit"
-            loading={loading}
-            icon={<PlusOutlined />}
+          <Form.Item
+            name="title"
+            label="Project Title"
+            rules={[
+              { required: true, message: 'Please enter a project title' },
+              { max: 100, message: 'Title must be less than 100 characters' }
+            ]}
           >
-            Create Project
-          </Button>
-        </Form.Item>
-      </Form>
-    </Card>
+            <Input
+              placeholder="e.g., AI-Powered Feedback Analyzer"
+              maxLength={100}
+              showCount
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="description"
+            label="Project Description"
+            rules={[
+              { required: true, message: 'Please enter a description' },
+              { max: 1000, message: 'Description must be less than 1000 characters' }
+            ]}
+          >
+            <TextArea
+              rows={6}
+              placeholder="Describe the project goals, tech stack, and expected deliverables."
+              maxLength={1000}
+              showCount
+            />
+          </Form.Item>
+
+          <Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loading}
+              icon={<PlusOutlined />}
+              size="large"
+              block
+            >
+              Create Project
+            </Button>
+          </Form.Item>
+        </Form>
+      </Card>
+    </MainLayout>
   );
 }

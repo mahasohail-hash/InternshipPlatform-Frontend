@@ -144,6 +144,8 @@ export function CreateEvaluationModal({
         {/* Action Buttons */}
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '24px' }}>
           <Button onClick={handleGenerateDraft} loading={draftLoading} disabled={loading} icon={<SparklesIcon width={16} />}>
+          
+
             Generate AI Draft
           </Button>
           <Button type="primary" htmlType="submit" loading={loading} disabled={draftLoading}>

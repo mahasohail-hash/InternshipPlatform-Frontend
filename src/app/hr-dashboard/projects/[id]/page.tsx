@@ -1,272 +1,381 @@
-'use client';
+"use client";
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import api from '../../../../lib/api'; // Adjust path
-import MainLayout from '../../../components/MainLayout'; // Adjust path
+import api from '../../../../lib/api';
+import MainLayout from '../../../components/MainLayout';
 import {
-  Typography, Spin, Result, Card, Descriptions,notification, List, Tag, Space, Divider, Button, Avatar, Tooltip
+  Typography, Spin, Result, Card, Descriptions, notification, List, Tag, Space, Divider,
+  Button, Avatar, Tooltip, Progress, Empty
 } from 'antd';
 import {
-  ProjectOutlined, UserOutlined, MailOutlined, CalendarOutlined, CheckCircleOutlined, SyncOutlined, ExclamationCircleOutlined, PlusOutlined, ArrowLeftOutlined
+  ProjectOutlined, UserOutlined, MailOutlined, CalendarOutlined, CheckCircleOutlined,
+  SyncOutlined, ExclamationCircleOutlined, ArrowLeftOutlined, WarningOutlined
 } from '@ant-design/icons';
 import { AxiosError } from 'axios';
-import Link from 'next/link'; // Import Link for navigation
-import dayjs from 'dayjs'; // Import dayjs
+import Link from 'next/link';
+import dayjs from 'dayjs';
 
 const { Title, Text, Paragraph } = Typography;
 
-// --- Interfaces (Adjust based on your actual backend entities) ---
-interface UserBasic {
-  id: string;
-  firstName?: string | null;
-  lastName?: string | null;
-  email: string;
-}
+// ===============================
+// Status Mapping
+// ===============================
 
-interface TaskBasic {
-  id: string;
-  title: string;
-  status: string; // Assuming TaskStatus enum values like 'To Do', 'In Progress', 'Done'
-  assignee?: UserBasic | null;
-  dueDate?: Date | string | null;
-}
+const statusIconMap = {
+  'done': <CheckCircleOutlined style={{ color: 'green' }} />,
+  'in progress': <SyncOutlined spin style={{ color: '#1677ff' }} />,
+  'blocked': <ExclamationCircleOutlined style={{ color: 'red' }} />,
+  'to do': <CalendarOutlined />,
+  'overdue': <WarningOutlined style={{ color: 'red' }} />
+};
 
-interface MilestoneBasic {
-  id: string;
-  title: string;
-  tasks: TaskBasic[];
-  createdAt: Date | string;
-}
+const statusColorMap = {
+  'done': 'success',
+  'in progress': 'processing',
+  'blocked': 'error',
+  'to do': 'default',
+  'overdue': 'error'
+};
 
-interface ProjectDetails {
-  id: string;
-  title: string;
-  description?: string;
-  status: string;
-  mentor?: UserBasic | null;
-  intern?: UserBasic | null; // If using ManyToOne for single intern
-  interns?: UserBasic[];   // If using ManyToMany for multiple interns, though not used in DTO mapping below.
-  milestones: MilestoneBasic[];
-}
-// ------------------------------------------------------------------
+const formatDate = (dateInput) => {
+  if (!dateInput) return 'N/A';
+  try {
+    return dayjs(dateInput).format('MMM D, YYYY');
+  } catch {
+    return 'Invalid Date';
+  }
+};
+
+const getFullName = (user) => {
+  return `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
+};
+
+const getStatusIcon = (status) => {
+  const normalized = status.toLowerCase();
+  return statusIconMap[normalized] || statusIconMap['to do'];
+};
+
+const getStatusColor = (status) => {
+  const normalized = status.toLowerCase();
+  return statusColorMap[normalized] || statusColorMap['to do'];
+};
+
+const getTaskStatus = (task) => {
+  if (!task.dueDate) return task.status.toLowerCase();
+  const overdue = dayjs().isAfter(dayjs(task.dueDate));
+  return overdue && task.status.toLowerCase() !== 'done'
+    ? 'overdue'
+    : task.status.toLowerCase();
+};
+
+// ===============================
+// MAIN COMPONENT
+// ===============================
+
 export default function ProjectDetailPage() {
   const params = useParams();
-  const router = useRouter(); // For back button
+  const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
-  const [project, setProject] = useState<ProjectDetails | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const rawId = params.id;
-  const projectId = Array.isArray(rawId) ? rawId[0] : rawId; // Ensure projectId is a single string
+  const [project, setProject] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const projectId = Array.isArray(params.id) ? params.id[0] : params.id;
 
   useEffect(() => {
-    // Wait for session to load and projectId to be valid
-    if (sessionStatus === 'loading' || !projectId) {
-      if (!projectId) setLoading(false);
+    if (!projectId || sessionStatus === 'loading') {
+      setLoading(false);
       return;
     }
 
-    if (typeof projectId !== 'string' || projectId.length < 36) { // Basic UUID check
+    if (typeof projectId !== 'string' || projectId.length < 36) {
       setLoading(false);
       setError("Error: Invalid project ID format.");
       return;
     }
 
-    const fetchProjectDetails = async () => {
+    const load = async () => {
       setLoading(true);
-      setError(null);
       try {
-        console.log(`Fetching project details for ID: "${projectId}"`);
-        // CRITICAL FIX: Backend route is /projects/:id
         const res = await api.get(`/projects/${projectId}`);
-        console.log("API Response for project details:", res.data);
         setProject(res.data);
-      } catch (err: any) {
-        console.error('Failed to fetch project details:', err);
+      } catch (err) {
         let message = "Could not load project details.";
+
         if (err instanceof AxiosError) {
-          if (err.response?.status === 404) {
-            message = "Project with this ID was not found.";
-          } else if (err.response?.status === 401 || err.response?.status === 403) {
-            message = "You do not have permission to view this project.";
-          } else {
-            message = err.response?.data?.message || err.message;
-          }
-        } else if (err instanceof Error) {
-          message = err.message;
+          message =
+            err.response?.status === 404
+              ? "Project not found."
+              : err.response?.status === 401 || err.response?.status === 403
+              ? "You do not have permission to view this project."
+              : err.response?.data?.message || err.message;
         }
+
         setError(message);
         notification.error({ message: 'Load Error', description: message });
       } finally {
         setLoading(false);
       }
     };
-
-    fetchProjectDetails();
+    load();
   }, [projectId, sessionStatus]);
 
-  // --- Render States ---
+  // Progress calculation
+  const calculateProjectProgress = () => {
+    if (!project?.milestones) return { percent: 0, completed: 0, total: 0 };
+    let total = 0, completed = 0;
+
+    project.milestones.forEach(m =>
+      m.tasks.forEach(t => {
+        total++;
+        if (t.status.toLowerCase() === 'done') completed++;
+      })
+    );
+    return {
+      percent: total ? Math.round((completed / total) * 100) : 0,
+      completed,
+      total
+    };
+  };
+
   if (loading) {
     return (
       <MainLayout>
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 'calc(100vh - 200px)' }}>
-          <Spin size="large" tip="Loading Project Details..." />
+        <div style={{
+          height: '60vh',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center'
+        }}>
+          <Spin size="large" tip="Loading beautiful project page..." />
         </div>
       </MainLayout>
     );
   }
 
-  if (error) {
+  if (error || !project) {
     return (
       <MainLayout>
         <Result
-          status={error.includes("not found") ? "404" : (error.includes("permission") ? "403" : "error")}
-          title="Could Not Load Project"
-          subTitle={error}
-          extra={<Button type="primary" icon={<ArrowLeftOutlined />} onClick={() => router.back()}>Go Back</Button>}
+          status={error?.includes("not found") ? "404" : "error"}
+          title={error || "Unable to load project"}
+          extra={
+            <Button icon={<ArrowLeftOutlined />} onClick={() => router.back()} type="primary">
+              Go Back
+            </Button>
+          }
         />
       </MainLayout>
     );
   }
 
-  if (!project) {
-    return (
-      <MainLayout>
-        <Result status="warning" title="Project Data Missing" subTitle="No project data was loaded." />
-      </MainLayout>
-    );
-  }
+  const progress = calculateProjectProgress();
 
-  // Helper to get status color
-  const getStatusColor = (status: string | null | undefined) => {
-    switch (status?.toLowerCase()) {
-      case 'active':
-      case 'in progress':
-        return 'processing';
-      case 'completed':
-      case 'done':
-        return 'success';
-      case 'blocked':
-        return 'error';
-      case 'to do':
-          return 'default';
-      case 'on hold': // Assuming this status is also possible
-          return 'warning';
-      default:
-        return 'default';
-    }
-  };
-  const formatUserName = (user: UserBasic) => `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email;
-  const mentorsName = project.mentor ? formatUserName(project.mentor) : 'Not Assigned';
-  // Use project.intern directly if it's the primary intern
-  const primaryIntern = project.intern ? [project.intern] : []; // Convert to array for consistent rendering
+  // ===============================
+  // SUCCESS UI — PREMIUM BEAUTIFUL DESIGN
+  // ===============================
 
   return (
     <MainLayout>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
+
+        {/* BACK BUTTON */}
         <Button
-            icon={<ArrowLeftOutlined />}
-            onClick={() => router.back()}
-            style={{ marginBottom: 16 }}
+          icon={<ArrowLeftOutlined />}
+          onClick={() => router.back()}
+          type="text"
+          style={{ marginTop: 5 }}
         >
-            Back to Projects
+          Back to Projects
         </Button>
 
-        <Title level={2}><ProjectOutlined /> {project.title}</Title>
-        {project.description && <Paragraph type="secondary">{project.description}</Paragraph>}
+        {/* HEADER */}
+        <div
+          style={{
+            padding: 30,
+            borderRadius: 16,
+            background: "linear-gradient(135deg, #e0f3ff 0%, #f9fbff 100%)",
+            boxShadow: "0 4px 14px rgba(0,0,0,0.08)"
+          }}
+        >
+          <Title level={2} style={{ marginBottom: 0 }}>
+            <ProjectOutlined /> {project.title}
+          </Title>
 
-        <Divider />
+          {project.description && (
+            <Paragraph type="secondary" style={{ marginTop: 8 }}>
+              {project.description}
+            </Paragraph>
+          )}
+        </div>
 
-        {/* --- Project Details Card --- */}
-        <Card bordered={false} size="small">
-          <Descriptions title="Project Details" size="small" column={{ xs: 1, sm: 2 }}>
-            <Descriptions.Item label="Status">
-              <Tag color={getStatusColor(project.status)}>{project.status || 'N/A'}</Tag>
+        {/* PROGRESS */}
+        <Card
+          style={{
+            borderRadius: 16,
+            border: "1px solid #dbe7ff",
+            background: "white",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.05)"
+          }}
+        >
+          <Text strong style={{ fontSize: 16 }}>Overall Progress</Text>
+          <Tooltip title={`${progress.completed} of ${progress.total} tasks`}>
+            <Progress
+              percent={progress.percent}
+              status={
+                progress.percent === 100
+                  ? "success"
+                  : progress.percent < 40
+                  ? "exception"
+                  : "active"
+              }
+              strokeColor={
+                progress.percent === 100
+                  ? "#52c41a"
+                  : progress.percent < 40
+                  ? "#ff4d4f"
+                  : "#1677ff"
+              }
+              style={{ marginTop: 12 }}
+            />
+          </Tooltip>
+          <Text type="secondary">
+            {progress.completed} / {progress.total} completed
+          </Text>
+        </Card>
+
+        {/* DETAILS */}
+        <Card
+          bordered={false}
+          style={{
+            borderRadius: 16,
+            padding: 20,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.05)"
+          }}
+        >
+          <Descriptions title="Assignment Details" size="middle" column={2}>
+
+            <Descriptions.Item label="Project Status">
+              <Tag color={getStatusColor(project.status)}>
+                {project.status}
+              </Tag>
             </Descriptions.Item>
+
             <Descriptions.Item label="Mentor">
               {project.mentor ? (
-                <Link href={`/hr-dashboard/manage-users/${project.mentor.id}`}> {/* Link to user profile */}
-                  <Avatar size="small" icon={<UserOutlined />} style={{ marginRight: 8 }} />
-                  {mentorsName}
+                <Link href={`/hr-dashboard/manage-users/${project.mentor.id}`}>
+                  <Space>
+                    <Avatar style={{ background: "#1677ff" }}>
+                      {project.mentor.firstName?.[0]}{project.mentor.lastName?.[0]}
+                    </Avatar>
+                    <Text>{getFullName(project.mentor)}</Text>
+                  </Space>
                 </Link>
-              ) : <Text type="secondary">Not Assigned</Text>}
+              ) : (
+                <Text type="secondary">Not Assigned</Text>
+              )}
             </Descriptions.Item>
-            {primaryIntern && primaryIntern.length > 0 ? (
-              <Descriptions.Item label="Intern">
-                <Avatar.Group maxCount={3}>
-                  {primaryIntern.map(intern => (
-                    <Tooltip key={intern.id} title={formatUserName(intern)}>
-                      <Link href={`/hr-dashboard/interns/${intern.id}`}> {/* Link to intern profile */}
-                        <Avatar icon={<UserOutlined />} />
+
+            {project.interns?.length > 0 && (
+              <Descriptions.Item label="Intern(s)">
+                <Avatar.Group maxCount={4}>
+                  {project.interns.map(i => (
+                    <Tooltip title={getFullName(i)} key={i.id}>
+                      <Link href={`/hr-dashboard/interns/${i.id}`}>
+                        <Avatar style={{ background: "#52c41a" }}>
+                          {i.firstName?.[0]}{i.lastName?.[0]}
+                        </Avatar>
                       </Link>
                     </Tooltip>
                   ))}
                 </Avatar.Group>
               </Descriptions.Item>
-            ) : (
-              <Descriptions.Item label="Intern">
-                <Text type="secondary">Not Assigned</Text>
-              </Descriptions.Item>
             )}
+
           </Descriptions>
         </Card>
 
-        <Divider />
-        {/* --- Milestones and Tasks Section --- */}
+        {/* MILESTONES */}
         <Title level={3}>Milestones & Tasks</Title>
 
-        {project.milestones && project.milestones.length > 0 ? (
+        {project.milestones?.length ? (
           <List
             itemLayout="vertical"
-            dataSource={project.milestones.sort((a,b) => dayjs(a.createdAt).unix() - dayjs(b.createdAt).unix())}
-            renderItem={milestone => (
-              <List.Item key={milestone.id}>
-                <Card type="inner" title={<Title level={5}>{milestone.title}</Title>} size="small">
-                  {milestone.tasks && milestone.tasks.length > 0 ? (
+            dataSource={project.milestones.sort(
+              (a, b) => dayjs(a.createdAt).unix() - dayjs(b.createdAt).unix()
+            )}
+            renderItem={(milestone) => (
+              <List.Item>
+                <Card
+                  style={{
+                    borderRadius: 16,
+                    background: "#ffffff",
+                    border: "1px solid #eef3ff",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.05)"
+                  }}
+                  title={
+                    <Space>
+                      <Text strong style={{ fontSize: 16 }}>{milestone.title}</Text>
+                      <Text type="secondary">({milestone.tasks.length} tasks)</Text>
+                    </Space>
+                  }
+                >
+                  {milestone.tasks.length ? (
                     <List
                       size="small"
-                      dataSource={milestone.tasks.sort((a,b) => dayjs(a.dueDate || '1970-01-01').unix() - dayjs(b.dueDate || '1970-01-01').unix())}
-                      renderItem={task => (
-                        <List.Item key={task.id}>
-                          <List.Item.Meta
-                            avatar={
-                              <Tooltip title={task.status}>
-                                {task.status === 'Done' ? <CheckCircleOutlined style={{ color: 'green' }} /> :
-                                 task.status === 'In Progress' ? <SyncOutlined spin style={{ color: 'blue' }} /> :
-                                 task.status === 'Blocked' ? <ExclamationCircleOutlined style={{ color: 'red' }} /> :
-                                 <CalendarOutlined />}
-                              </Tooltip>
-                            }
-                            title={task.title}
-                            description={
-                              <Space size="small">
-                                {task.assignee && (
-                                   <Tooltip title={`Assigned to ${task.assignee.firstName}`}>
-                                        <Tag icon={<UserOutlined />} >
-                                            {task.assignee.firstName}
-                                        </Tag>
-                                   </Tooltip>
-                                )}
-                                {task.dueDate && <Text type="secondary">Due: {dayjs(task.dueDate).format('YYYY-MM-DD')}</Text>}
-                              </Space>
-                            }
-                          />
-                           <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
-                        </List.Item>
-                      )}
+                      dataSource={milestone.tasks}
+                      renderItem={(task) => {
+                        const taskStatus = getTaskStatus(task);
+                        const overdue = task.dueDate && dayjs().isAfter(dayjs(task.dueDate));
+                        return (
+                          <List.Item>
+                            <List.Item.Meta
+                              avatar={getStatusIcon(taskStatus)}
+                              title={
+                                <Space>
+                                  <Text strong>{task.title}</Text>
+                                  {overdue && (
+                                    <Tooltip title="Task overdue">
+                                      <WarningOutlined style={{ color: 'red' }} />
+                                    </Tooltip>
+                                  )}
+                                </Space>
+                              }
+                              description={
+                                <Space>
+                                  {task.assignee && (
+                                    <Tag icon={<UserOutlined />}>
+                                      {getFullName(task.assignee)}
+                                    </Tag>
+                                  )}
+                                  {task.dueDate && (
+                                    <Text type={overdue ? "danger" : "secondary"}>
+                                      Due: {formatDate(task.dueDate)}
+                                    </Text>
+                                  )}
+                                </Space>
+                              }
+                            />
+                            <Tag color={getStatusColor(taskStatus)}>
+                              {taskStatus}
+                            </Tag>
+                          </List.Item>
+                        );
+                      }}
                     />
                   ) : (
-                    <Text type="secondary">No tasks in this milestone.</Text>
+                    <Empty description="No tasks available" />
                   )}
                 </Card>
               </List.Item>
             )}
           />
         ) : (
-          <Result status="info" title="No Milestones Found" subTitle="This project does not have any milestones defined yet." />
+          <Result status="info" title="No Milestones" subTitle="Add some to begin." />
         )}
+
       </Space>
     </MainLayout>
   );

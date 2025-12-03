@@ -1,31 +1,22 @@
-
-import '@/globals.css'; 
-import { AntdRegistry } from '@ant-design/nextjs-registry';
-import AuthProvider from './components/auth-provider';
-import ClientRootLayout from './ClientRootLayout'; 
+import "../styles/globals.css";
 import { Inter } from 'next/font/google';
+import ClientRootLayout from './ClientRootLayout';
+import { Metadata } from 'next';
 
 const inter = Inter({ subsets: ['latin'] });
 
-export const metadata = {
+export const metadata: Metadata = {
   title: 'Internship Platform',
   description: 'Internship Management System',
 };
 
-// 2. Main Server Layout component
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body className={inter.className}>
-        {/* --- 2. Wrap your app --- */}
-        <AuthProvider>
-          <AntdRegistry>{children}</AntdRegistry>
-        </AuthProvider>
-        {/* --- End of Fix --- */}
+        <ClientRootLayout>
+          {children}
+        </ClientRootLayout>
       </body>
     </html>
   );

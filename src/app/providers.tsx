@@ -8,31 +8,17 @@ interface ProvidersProps {
   children: React.ReactNode;
 }
 
-/**
- * This component wraps the entire application with client-side providers:
- * 1. SessionProvider: Makes the NextAuth.js session (useSession) available everywhere.
- * 2. ConfigProvider: Sets up the global theme and settings for Ant Design.
- */
 export default function Providers({ children }: ProvidersProps) {
   return (
-    // SessionProvider makes `useSession()` work in any client component
-    <SessionProvider>
-      {/* ConfigProvider provides global theme settings to all Ant Design components */}
+    <SessionProvider refetchInterval={300}> {/* Refresh session every 5 minutes */}
       <ConfigProvider
         theme={{
-          // Use the default light theme algorithm
-          algorithm: theme.defaultAlgorithm,
-          // Or uncomment this for a dark theme:
-          // algorithm: theme.darkAlgorithm,
-
-          // Global design tokens
+          algorithm: theme.defaultAlgorithm, // Light theme
           token: {
             colorPrimary: '#1890ff',
             colorLink: '#1890ff',
             borderRadius: 6,
           },
-
-          // Component-specific overrides
           components: {
             Layout: {
               siderBg: '#001529',
@@ -41,11 +27,16 @@ export default function Providers({ children }: ProvidersProps) {
             Menu: {
               darkItemBg: '#001529',
               darkItemSelectedBg: '#1890ff',
+              darkItemHoverBg: 'rgba(24,144,255,0.2)',
+            },
+            Card: {
+              boxShadow:
+                '0 1px 2px -2px rgba(0,0,0,.16), 0 3px 6px 0 rgba(0,0,0,.12), 0 5px 12px 4px rgba(0,0,0,.09)',
             },
           },
         }}
       >
-        {children} {/* This renders the rest of your application */}
+        {children}
       </ConfigProvider>
     </SessionProvider>
   );

@@ -1,193 +1,170 @@
 'use client';
-
-import React, { useState, useEffect } from 'react';
-import { Card, Checkbox, List, Typography, Space, Spin, Alert, notification } from 'antd';
-import { CheckCircleOutlined, SyncOutlined } from '@ant-design/icons';
+import React, { useEffect, useState } from 'react';
+import { Card, Typography, List, Checkbox, Spin, Alert, Button, notification } from 'antd';
 import api from '../../../lib/api';
-import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
-import MainLayout from '../../components/MainLayout'; // Import MainLayout
+import { AxiosError } from 'axios';
 
 const { Title, Text } = Typography;
 
-interface InternChecklistItem {
-  id: string;
-  title: string;
-  description?: string; // Made optional as per backend entity
-  isCompleted: boolean;
-  completedAt: string | null;
-  createdAt: string;
+interface ChecklistItem {
+id: string;
+title: string;
+isCompleted: boolean;
 }
 
 interface InternChecklist {
-  id: string;
-  intern: {
-    id: string;
-    email: string;
-  };
-  template: {
-    id: string;
-    name: string;
-  };
-  items: InternChecklistItem[];
-  createdAt: string;
+id: string;
+template: { id: string; name: string };
+items: ChecklistItem[];
+isCompleted: boolean;
 }
 
-export default function InternChecklistsPage() {
-  const { data: session, status } = useSession();
-  const [checklist, setChecklist] = useState<InternChecklist | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
+export default function InternChecklistPage() {
+const [checklists, setChecklists] = useState<InternChecklist[]>([]);
+const [loading, setLoading] = useState(true);
+const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
+const [updatingChecklistId, setUpdatingChecklistId] = useState<string | null>(null);
+const [error, setError] = useState<string | null>(null);
 
-  const currentInternId = session?.user?.id;
+useEffect(() => {
+const fetchChecklists = async () => {
+try {
+const res = await api.get('/checklists/intern/me');
+setChecklists(res.data || []);
+} catch (err) {
+console.error(err);
+setError('Failed to load your checklists.');
+} finally {
+setLoading(false);
+}
+};
+fetchChecklists();
+}, []);
 
-  const handleItemToggle = async (itemId: string, isCompleted: boolean) => {
-    try {
-      const payload = { isCompleted };
-      // CRITICAL FIX: Correct API path for updating a checklist item
-      await api.patch(`/checklists/items/${itemId}`, payload);
+const toggleItem = async (itemId: string, isCompleted: boolean) => {
+setUpdatingItemId(itemId);
+try {
+await api.patch(`/checklists/items/${itemId}`, { isCompleted });
+setChecklists(prev =>
+prev.map(cl => ({
+...cl,
+items: cl.items.map(item =>
+item.id === itemId ? { ...item, isCompleted } : item
+),
+isCompleted: cl.items.every(item =>
+item.id === itemId ? isCompleted : item.isCompleted
+),
+}))
+);
+} catch (err) {
+console.error(err);
+let msg = 'Failed to update item.';
+if (err instanceof AxiosError && err.response) {
+msg = err.response.data?.message || msg;
+}
+notification.error({ message: 'Error', description: msg });
+} finally {
+setUpdatingItemId(null);
+}
+};
 
-      // Optimistically update the UI
-      setChecklist(prevChecklist => {
-        if (!prevChecklist) return null;
-        return {
-          ...prevChecklist,
-          items: prevChecklist.items.map(item =>
-            item.id === itemId
-              ? { ...item, isCompleted, completedAt: isCompleted ? new Date().toISOString() : null }
-              : item
-          ),
-        };
-      });
-      notification.success({ message: 'Success', description: 'Checklist item updated!' });
-    } catch (err: any) {
-      console.error('Failed to update checklist item:', err);
-      notification.error({ message: 'Error', description: err.response?.data?.message || 'Failed to update checklist item.' });
-    }
-  };
+const markAll = async (checklist: InternChecklist, completed: boolean) => {
+setUpdatingChecklistId(checklist.id);
+try {
+await Promise.all(
+checklist.items
+.filter(item => item.isCompleted !== completed)
+.map(item => api.patch(`/checklists/items/${item.id}`, { isCompleted: completed }))
+);
+setChecklists(prev =>
+prev.map(cl =>
+cl.id === checklist.id
+? {
+...cl,
+items: cl.items.map(item => ({ ...item, isCompleted: completed })),
+isCompleted: completed,
+}
+: cl
+)
+);
+notification.success({
+message: completed ? 'Checklist Completed' : 'Checklist Incomplete',
+description: `All items in "${checklist.template.name}" are now ${completed ? 'complete' : 'incomplete'}.`,
+});
+} catch (err) {
+console.error(err);
+let msg = completed
+? 'Failed to mark all items as complete.'
+: 'Failed to mark all items as incomplete.';
+if (err instanceof AxiosError && err.response) {
+msg = err.response.data?.message || msg;
+}
+notification.error({ message: 'Error', description: msg });
+} finally {
+setUpdatingChecklistId(null);
+}
+};
 
+if (loading) return <Spin tip="Loading your checklists..." style={{ marginTop: 50 }} />;
+if (error) return <Alert message="Error" description={error} type="error" showIcon />;
 
-  useEffect(() => {
-    if (status === 'loading') {
-      setLoading(true);
-      setError(null);
-      return;
-    }
+return (
+<div style={{ maxWidth: 800, margin: '40px auto', padding: '20px' }}> <Title level={2}>Your Onboarding Checklists</Title>
 
-    if (!currentInternId) {
-      if (status === 'unauthenticated') {
-        router.push('/auth/login'); // Redirect to login page
-      } else {
-        setError('Intern ID not found in session. Please check NextAuth.js configuration.');
-        setLoading(false);
-      }
-      return;
-    }
-
-    const fetchInternChecklist = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        // CRITICAL FIX: Correct API path for fetching intern's checklist
-        const response = await api.get<InternChecklist>(`/checklists/intern/${currentInternId}`);
-        setChecklist(response.data);
-      } catch (err: any) {
-        console.error('Failed to fetch intern checklist:', err);
-        setError(err.response?.data?.message || 'Failed to load your onboarding checklist. Please try again.');
-        notification.error({ message: 'Error', description: err.response?.data?.message || 'Could not load checklist.' });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchInternChecklist();
-  }, [currentInternId, status, router]);
-
-  if (status === 'loading' || loading) { // Combine loading states
-    return (
-      <MainLayout>
-        <Space direction="vertical" style={{ width: '100%', textAlign: 'center', padding: '50px' }}>
-          <Spin size="large" indicator={<SyncOutlined spin />} />
-          <Text>Loading your onboarding checklist...</Text>
-        </Space>
-      </MainLayout>
-    );
-  }
-
-  if (error) {
-    return (
-      <MainLayout>
-        <div style={{ padding: '20px' }}>
-          <Alert
-            message="Error"
-            description={error}
-            type="error"
-            showIcon
-          />
-        </div>
-      </MainLayout>
-    );
-  }
-
-  if (!checklist) {
-    return (
-      <MainLayout>
-        <div style={{ padding: '20px' }}>
-          <Alert
-            message="No Checklist Found"
-            description="It looks like an onboarding checklist hasn't been assigned to you yet."
-            type="info"
-            showIcon
-          />
-        </div>
-      </MainLayout>
-    );
-  }
-
-  return (
-    <MainLayout>
-      <div style={{ maxWidth: '800px', margin: '40px auto', padding: '20px' }}>
-        <Title level={2}>
-          Your Onboarding Checklist
-          <Text type="secondary" style={{ marginLeft: '10px', fontSize: '18px' }}>
-            ({checklist.template.name})
-          </Text>
-        </Title>
-
-        <List
-          itemLayout="vertical"
-          dataSource={checklist.items}
-          renderItem={(item) => (
-            <List.Item
-              key={item.id}
-              actions={[
-                <Space key="status-action">
-                  {item.isCompleted ? (
-                    <Text type="success">
-                      <CheckCircleOutlined /> Completed on{' '}
-                      {item.completedAt ? new Date(item.completedAt).toLocaleDateString() : 'N/A'}
-                    </Text>
-                  ) : (
-                    <Text type="warning">Pending</Text>
-                  )}
-                </Space>,
-              ]}
-            >
-              <List.Item.Meta
-                avatar={
+```
+  {checklists.length === 0 ? (
+    <Alert message="No checklists assigned yet." type="info" showIcon />
+  ) : (
+    checklists.map(checklist => {
+      const borderColor = checklist.isCompleted ? 'green' : '#f0f0f0';
+      return (
+        <Card
+          key={checklist.id}
+          title={checklist.template?.name || 'Unnamed Template'}
+          extra={
+            <>
+              <Button
+                type="link"
+                onClick={() => markAll(checklist, true)}
+                disabled={checklist.isCompleted || updatingChecklistId === checklist.id}
+              >
+                Mark All Complete
+              </Button>
+              <Button
+                type="link"
+                onClick={() => markAll(checklist, false)}
+                disabled={!checklist.isCompleted || updatingChecklistId === checklist.id}
+              >
+                Mark All Incomplete
+              </Button>
+            </>
+          }
+          style={{ marginBottom: 20, border: `1px solid ${borderColor}` }}
+        >
+          {checklist.items.length === 0 ? (
+            <Text type="secondary">No items in this checklist.</Text>
+          ) : (
+            <List
+              dataSource={checklist.items}
+              renderItem={item => (
+                <List.Item key={item.id}>
                   <Checkbox
                     checked={item.isCompleted}
-                    onChange={(e) => handleItemToggle(item.id, e.target.checked)}
-                  />
-                }
-                title={<Title level={4} style={{ marginBottom: 0 }}>{item.title}</Title>}
-                description={<Text>{item.description}</Text>}
-              />
-            </List.Item>
+                    disabled={updatingItemId === item.id}
+                    onChange={e => toggleItem(item.id, e.target.checked)}
+                  >
+                    {item.title || 'Untitled Item'}
+                  </Checkbox>
+                </List.Item>
+              )}
+            />
           )}
-        />
-      </div>
-    </MainLayout>
-  );
+        </Card>
+      );
+    })
+  )}
+</div>
+
+
+);
 }

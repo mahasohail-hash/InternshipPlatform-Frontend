@@ -5,6 +5,15 @@ import { Button, Typography, Space } from 'antd'; // Assuming Ant Design is inst
 import { LogoutOutlined, UserOutlined } from '@ant-design/icons'; // Add UserOutlined
 import { UserRole } from '../../common/enums/user-role.enum'; // CRITICAL FIX: Correct import path
 
+export default function Component() {
+  const { data: session, status } = useSession()
+
+  if (status === "authenticated") {
+    return <p>Signed in as {session.user.email}</p>
+  }
+
+  return <a href="/api/auth/signin">Sign in</a>
+}
 const { Text, Paragraph } = Typography;
 
 export function UserStatus() {

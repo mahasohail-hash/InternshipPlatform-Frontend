@@ -2,92 +2,205 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import MainLayout from '../components/MainLayout';
 import api from '../../lib/api';
-import { Typography, Spin, Alert, Card, Button, Modal, Form, Input, Select, notification, Table, Tag, Space, Row, Col, Statistic, Result, Popconfirm } from 'antd';
-import { PlusOutlined, UserOutlined, ContainerOutlined, CheckCircleOutlined, TeamOutlined, EditOutlined, DeleteOutlined, EyeOutlined, FilePdfOutlined, DownloadOutlined } from '@ant-design/icons';
+import {
+  Typography,
+  Spin,
+  Alert,
+  Card,
+  Button,
+  Modal,
+  Form,
+  Input,
+  Select,
+  notification,
+  Table,
+  Tag,
+  Space,
+  Row,
+  Col,
+  Statistic,
+  Result,
+  Popconfirm,
+  List,
+  Empty,
+  Progress,
+} from 'antd';
+import {
+  PlusOutlined,
+  UserOutlined,
+  ContainerOutlined,
+  CheckCircleOutlined,
+  TeamOutlined,
+  DeleteOutlined,
+  EyeOutlined,
+  FilePdfOutlined,
+  ClockCircleOutlined,
+  CheckCircleFilled,
+  SyncOutlined,
+} from '@ant-design/icons';
 import { useSession } from 'next-auth/react';
 import { isAxiosError } from 'axios';
 import { useRouter } from 'next/navigation';
-import { UserRole } from '../../common/enums/user-role.enum'
+import { UserRole } from '../../common/enums/user-role.enum';
+
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
 const { TextArea } = Input;
 
-// TypeScript Interfaces for fetched data
+/* ---------- Types ---------- */
 interface Intern {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  role: string;
-  tasksTotal: number;
-  tasksDone: number;
-  checklistStatus: string;
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: string;
+  tasksTotal: number;
+  tasksDone: number;
+  checklistStatus: string;
 }
+
 interface Evaluation {
-  id: string;
-  score: number | null;
-  feedbackText: string | null;
-  type: string;
-  createdAt: string;
-  intern: { id: string; firstName?: string; lastName?: string; email: string; };
-  mentor?: { id: string; firstName?: string; lastName?: string; email: string; };
+  id: string;
+  score: number | null;
+  feedbackText: string | null;
+  type: string;
+  createdAt: string;
+  intern: { id: string; firstName?: string; lastName?: string; email: string };
+  mentor?: { id: string; firstName?: string; lastName?: string; email: string };
 }
 
 interface InternAtRisk {
-  key: string; 
-  name: string;
-  project: string;
-  tasksOverdue: number;
+  key: string;
+  name: string;
+  project: string;
+  tasksOverdue: number;
   reason: string;
-  evaluationScore: number;
-  status: 'At Risk' | 'Warning' | 'None';
+  evaluationScore: number;
+  status: 'At Risk' | 'Warning' | 'None';
 }
 
-// Columns (These are defined outside, so they are fine)
+interface ChecklistItem {
+  id: string;
+  title: string;
+  isCompleted: boolean;
+}
+
+interface Checklist {
+  id: string;
+  template: { title: string; description?: string };
+  items: ChecklistItem[];
+  isCompleted: boolean;
+  progress?: number;
+}
+
+/* ---------- Columns ---------- */
 const evaluationColumns = [
-    { title: 'Intern', dataIndex: ['intern', 'firstName'], key: 'internName', render: (text: string, record: Evaluation) => `${record.intern?.firstName || ''} ${record.intern?.lastName || ''}` },
-    { title: 'Mentor', dataIndex: ['mentor', 'firstName'], key: 'mentorName', render: (text: string, record: Evaluation) => `${record.mentor?.firstName || 'N/A'} ${record.mentor?.lastName || ''}` },
-    { title: 'Type', dataIndex: 'type', key: 'type', render: (text: string) => <Tag>{text}</Tag> },
-    { title: 'Score (1-5)', dataIndex: 'score', key: 'score', sorter: (a: Evaluation, b: Evaluation) => (a.score || 0) - (b.score || 0) },
-    { title: 'Date', dataIndex: 'createdAt', key: 'date', render: (date: string) => date ? new Date(date).toLocaleDateString() : 'N/A' },
+  {
+    title: 'Intern',
+    key: 'internName',
+    render: (_: any, record: Evaluation) =>
+      `${record.intern?.firstName || ''} ${record.intern?.lastName || ''}`,
+  },
+  {
+    title: 'Mentor',
+    key: 'mentorName',
+    render: (_: any, record: Evaluation) =>
+      `${record.mentor?.firstName || 'N/A'} ${record.mentor?.lastName || ''}`,
+  },
+  { title: 'Type', dataIndex: 'type', key: 'type', render: (t: string) => <Tag>{t}</Tag> },
+  {
+    title: 'Score (1-5)',
+    dataIndex: 'score',
+    key: 'score',
+    sorter: (a: Evaluation, b: Evaluation) => (a.score || 0) - (b.score || 0),
+  },
+  {
+    title: 'Date',
+    dataIndex: 'createdAt',
+    key: 'date',
+    render: (date: string) => (date ? new Date(date).toLocaleDateString() : 'N/A'),
+  },
 ];
 
 const riskColumns = [
-    { title: 'Intern Name', dataIndex: 'name', key: 'name', render: (text: string, record: InternAtRisk) => <a href={`/hr-dashboard/interns/${record.key}`}>{text}</a> },
-    { title: 'Project', dataIndex: 'project', key: 'project' },
-    { title: 'Overdue Tasks', dataIndex: 'tasksOverdue', key: 'tasksOverdue', sorter: (a: InternAtRisk, b: InternAtRisk) => a.tasksOverdue - b.tasksOverdue },
-    { title: 'Latest Score', dataIndex: 'evaluationScore', key: 'evaluationScore', render: (score: number) => <Tag color={score < 3.0 ? 'red' : 'orange'}>{score ? score.toFixed(1) : 'N/A'}/5.0</Tag> },
-    { title: 'Status', dataIndex: 'status', key: 'status', render: (status: string) => <Tag color={status === 'At Risk' ? 'red' : 'gold'}>{status}</Tag> },
+  {
+    title: 'Intern Name',
+    dataIndex: 'name',
+    key: 'name',
+    render: (text: string, record: InternAtRisk) => (
+      <a href={`/hr-dashboard/interns/${record.key}`}>{text}</a>
+    ),
+  },
+  { title: 'Project', dataIndex: 'project', key: 'project' },
+  {
+    title: 'Overdue Tasks',
+    dataIndex: 'tasksOverdue',
+    key: 'tasksOverdue',
+    sorter: (a: InternAtRisk, b: InternAtRisk) => a.tasksOverdue - b.tasksOverdue,
+  },
+  {
+    title: 'Latest Score',
+    dataIndex: 'evaluationScore',
+    key: 'evaluationScore',
+    render: (score: number) => (
+      <Tag color={score < 3.0 ? 'red' : 'orange'}>{score ? score.toFixed(1) : 'N/A'}/5.0</Tag>
+    ),
+  },
+  {
+    title: 'Status',
+    dataIndex: 'status',
+    key: 'status',
+    render: (status: string) => <Tag color={status === 'At Risk' ? 'red' : 'gold'}>{status}</Tag>,
+  },
 ];
 
-
+/* ---------- Component ---------- */
 export default function HRDashboardPage() {
-  const router = useRouter();
-  const { data: session, status } = useSession();
-  const [interns, setInterns] = useState<Intern[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isInternModalVisible, setIsInternModalVisible] = useState(false);
-  const [isTemplateModalVisible, setIsTemplateModalVisible] = useState(false);
-const [form] = Form.useForm();
-const [templateForm] = Form.useForm();
-const [internForm] = Form.useForm();
-  const [summary, setSummary] = useState<any>(null);
-  const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
-  const [projects, setProjects] = useState<any[]>([]);
-  
-    const [internsAtRiskData, setInternsAtRiskData] = useState<InternAtRisk[]>([]);
+  const router = useRouter();
+  const { data: session, status } = useSession();
+
+  // main states
+  const [interns, setInterns] = useState<Intern[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // forms & templates
+  const [form] = Form.useForm();
+  const [internForm] = Form.useForm();
+  const [templateForm] = Form.useForm();
+  const [templates, setTemplates] = useState<{ id: string; name: string }[]>([]);
+
+  // modals & checklist UI
+  const [isInternModalVisible, setIsInternModalVisible] = useState(false);
+  const [isTemplateModalVisible, setIsTemplateModalVisible] = useState(false);
+  const [isChecklistModalVisible, setIsChecklistModalVisible] = useState(false);
+  const [selectedInternChecklists, setSelectedInternChecklists] = useState<Checklist[]>([]);
+  const [selectedInternId, setSelectedInternId] = useState<string | null>(null);
+  const [selectedInternName, setSelectedInternName] = useState<string>('');
+  const [checklistLoading, setChecklistLoading] = useState(false);
+  const [updatingItems, setUpdatingItems] = useState<string[]>([]);
+
+  // analytics & other
+  const [summary, setSummary] = useState<any>(null);
+  const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [internsAtRiskData, setInternsAtRiskData] = useState<InternAtRisk[]>([]);
   const [selectedInternForPdfReport, setSelectedInternForPdfReport] = useState<string | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
-  const role = (session?.user as any)?.role;
-  const isHR = role === 'HR';
-    
-  // --- ADDED/MODIFIED FOR HR DASHBOARD ISSUES: Intern Management Columns ---
-const internManagementColumns = [
-    { title: 'Name', dataIndex: 'firstName', key: 'name', render: (_: any, record: Intern) => `${record.firstName} ${record.lastName}` },
+  const role = (session?.user as any)?.role;
+  const isHR = role === 'HR';
+
+  /* ---------- Table columns (uses fetchInternChecklistsById for Checklist action) ---------- */
+  const internManagementColumns = [
+    {
+      title: 'Name',
+      dataIndex: 'firstName',
+      key: 'name',
+      render: (_: any, record: Intern) => `${record.firstName} ${record.lastName}`,
+    },
     { title: 'Email', dataIndex: 'email', key: 'email' },
-    { title: 'Role', dataIndex: 'role', key: 'role', render: (role: string) => <Tag color="blue">{role}</Tag> },
+    { title: 'Role', dataIndex: 'role', key: 'role', render: (r: string) => <Tag color="blue">{r}</Tag> },
     {
       title: 'Onboarding Status',
       dataIndex: 'checklistStatus',
@@ -102,249 +215,319 @@ const internManagementColumns = [
       },
     },
     {
-      title: 'Actions', key: 'actions', render: (_: any, record: Intern) => (
+      title: 'Actions',
+      key: 'actions',
+      render: (_: any, record: Intern) => (
         <Space size="middle">
           <Button
             icon={<EyeOutlined />}
             size="small"
-            onClick={() => router.push(`/hr-dashboard/interns/${record.id}`)} // Corrected: Link to intern profile
+            onClick={() => router.push(`/hr-dashboard/interns/${record.id}`)}
           >
             View
           </Button>
+
           <Button
             type="link"
             size="small"
-            onClick={() => router.push(`/hr-dashboard/interns/${record.id}`)} // "Manage Checklist" links to intern profile
+            onClick={() =>
+              fetchInternChecklistsById(record.id, `${record.firstName} ${record.lastName}`)
+            }
           >
             Checklist
           </Button>
+
           <Popconfirm
             title="Are you sure you want to delete this intern?"
-            description="This action cannot be undone and will delete all associated data (projects, evaluations, checklists). You might need to remove existing assignments first."
-            onConfirm={() => handleDelete(record.id)} // Calls the handleDelete function
-            okText="Yes, Delete"
+            onConfirm={() => handleDelete(record.id)}
+            okText="Yes"
             cancelText="No"
           >
-            <Button danger icon={<DeleteOutlined />} size="small">Delete</Button>
+            <Button danger icon={<DeleteOutlined />} size="small">
+              Delete
+            </Button>
           </Popconfirm>
         </Space>
-      )
+      ),
     },
   ];
-  // --- 1.1 Handle Intern Deletion (Use the correct function definition) ---
-  const handleDelete = async (internId: string) => {
-    try {
-      await api.delete(`/api/users/${internId}`);
-      notification.success({ message: 'Intern deleted successfully.' });
-      fetchDashboardData(); 
-    }catch (error) {
+
+  /* ---------- API fetches ---------- */
+  const fetchTemplates = useCallback(async () => {
+    try {
+      const res = await api.get('/api/checklists/templates');
+      // Expect templates list of { id, name }
+      setTemplates(res.data || []);
+    } catch (err) {
+      // non-blocking: templates optional
+      console.warn('Failed to load templates', err);
+    }
+  }, []);
+
+  const fetchDashboardData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const results = await Promise.allSettled([
+        api.get('/api/analytics/summary'),
+        api.get('/api/projects'),
+        api.get('/api/evaluations'),
+        api.get('/api/users/interns'),
+        api.get('/api/analytics/interns-at-risk'),
+      ]);
+
+      if (results[0].status === 'fulfilled') setSummary(results[0].value.data);
+      if (results[1].status === 'fulfilled') setProjects(results[1].value.data);
+      if (results[2].status === 'fulfilled') setEvaluations(results[2].value.data);
+      if (results[3].status === 'fulfilled') setInterns(results[3].value.data);
+      if (results[4].status === 'fulfilled') setInternsAtRiskData(results[4].value.data);
+
+      // collect errors (non-fatal)
+      const errs = results
+        .filter(r => r.status === 'rejected')
+        .map(r => (isAxiosError((r as any).reason) ? (r as any).reason.message : String((r as any).reason)));
+      if (errs.length) setError(errs.join('\n'));
+    } catch (err: any) {
+      setError(err.message || 'Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (status === 'authenticated' && isHR) {
+      fetchDashboardData();
+      fetchTemplates();
+    } else if (status === 'authenticated' && role && !isHR) {
+      notification.error({ message: 'Access Denied', description: 'Redirecting to appropriate dashboard.' });
+      router.push('/');
+    }
+  }, [status, role, isHR, fetchDashboardData, fetchTemplates, router]);
+
+  /* ---------- Checklist helpers ---------- */
+  const fetchInternChecklists = async (internId: string) => {
+    try {
+  const res = await api.get<Checklist[]>(`/api/checklists/intern/${internId}`);
+      return res.data || [];
+    } catch (err) {
+      console.error('Failed to fetch intern checklists', err);
+      return [];
+    }
+  };
+
+  // open Checklist modal for a specific intern
+  const fetchInternChecklistsById = async (internId: string, internFullName: string) => {
+    setChecklistLoading(true);
+    try {
+  const res = await api.get<Checklist[]>(`/api/checklists/intern/${internId}`);
+      const checklistsWithProgress = (res.data || []).map(cl => {
+        const completedItems = cl.items.filter(i => i.isCompleted).length;
+        const progress = cl.items.length > 0 ? Math.round((completedItems / cl.items.length) * 100) : 0;
+        return { ...cl, progress };
+      });
+      setSelectedInternChecklists(checklistsWithProgress);
+      setSelectedInternId(internId);
+      setSelectedInternName(internFullName);
+      setIsChecklistModalVisible(true);
+    } catch (err: any) {
+      notification.error({ message: 'Failed to fetch checklists', description: err.message || '' });
+    } finally {
+      setChecklistLoading(false);
+    }
+  };
+
+  const handleToggleChecklistItem = async (
+    internId: string,
+    checklistId: string,
+    itemId: string,
+    currentStatus: boolean
+  ) => {
+    try {
+      setUpdatingItems(prev => [...prev, itemId]);
+
+      // call backend to toggle
+await api.patch(`/api/checklists/intern/${internId}/items/${itemId}`, { isCompleted: !currentStatus });
+
+      // optimistic UI update
+      setSelectedInternChecklists(prev =>
+        prev.map(cl => {
+          if (cl.id !== checklistId) return cl;
+          const updatedItems = cl.items.map(it => (it.id === itemId ? { ...it, isCompleted: !currentStatus } : it));
+          const completed = updatedItems.filter(i => i.isCompleted).length;
+          const progress = updatedItems.length > 0 ? Math.round((completed / updatedItems.length) * 100) : 0;
+          return { ...cl, items: updatedItems, progress };
+        })
+      );
+    } catch (err: any) {
+      notification.error({ message: 'Update Failed', description: err.message || '' });
+    } finally {
+      setUpdatingItems(prev => prev.filter(id => id !== itemId));
+    }
+  };
+
+  const handleCompleteAllItems = async (internId: string | null, checklistId: string) => {
+    if (!internId) return;
+    const checklist = selectedInternChecklists.find(c => c.id === checklistId);
+    if (!checklist) return;
+
+    const allItemIds = checklist.items.map(i => i.id);
+    try {
+      setUpdatingItems(prev => [...prev, ...allItemIds]);
+
+      await api.patch(`/api/checklists/intern/${internId}/items/bulk-complete`, { checklistId });
+
+      // optimistic update
+      setSelectedInternChecklists(prev =>
+        prev.map(cl => (cl.id === checklistId ? { ...cl, items: cl.items.map(i => ({ ...i, isCompleted: true })), progress: 100 } : cl))
+      );
+
+      notification.success({ message: 'All items marked complete!' });
+    } catch (err: any) {
+      notification.error({ message: 'Failed to complete all items', description: err.message || '' });
+    } finally {
+      setUpdatingItems(prev => prev.filter(id => !allItemIds.includes(id)));
+    }
+  };
+
+  /* ---------- Intern creation & PDF generation ---------- */
+  const handleCreateInternWithChecklists = async (values: any) => {
+    try {
+      let newTemplateIds: string[] = [];
+
+      // create new templates if provided
+     if (values.newTemplates?.length) {
+  const creationResponses = await Promise.all(
+    values.newTemplates.map((t: any) =>
+      api.post('/api/checklists/templates', {
+        name: t.name,
+        description: t.description || '',
+        items: t.items?.map((i: any) => ({ title: i.title })) || [],
+      })
+    )
+  );
+  newTemplateIds = creationResponses.map((r: any) => r.data.id);
+}
+
+
+      const allTemplateIds = [...(values.assignedChecklists || []), ...newTemplateIds];
+
+      // create intern + assign checklists
+      const internRes = await api.post('/api/users/intern/onboard', {
+        firstName: values.firstName,
+        lastName: values.lastName,
+        email: values.email,
+        password: values.password,
+        role: 'INTERN',
+        checklistIds: allTemplateIds,
+      });
+
+      const internId = internRes.data.id;
+      // Fetch newly assigned checklists (optional display)
+      const assigned = await fetchInternChecklists(internId);
+      console.log('Assigned checklists for new intern:', assigned);
+
+      notification.success({
+        message: 'Intern Onboarded',
+        description: `${values.firstName} ${values.lastName} created and assigned ${allTemplateIds.length} checklist(s).`,
+      });
+
+      internForm.resetFields();
+      setIsInternModalVisible(false);
+      // refresh dashboard
+      await fetchDashboardData();
+      // refresh templates
+      await fetchTemplates();
+    } catch (err: any) {
+      notification.error({
+        message: 'Onboarding Failed',
+        description: err.response?.data?.message || err.message || 'Server error',
+      });
+    }
+  };
+
+  const handleGeneratePdfReport = async (values: { internIdForPdfReport: string }) => {
+    const internIdToReport = values.internIdForPdfReport;
+    if (!internIdToReport) return notification.error({ message: 'Please select an intern for the report.' });
+
+    setIsGeneratingPdf(true);
+    notification.info({ message: 'Generating PDF report...', duration: 0 });
+
+    try {
+      const response = await api.get(`/api/reports/final-packet/${internIdToReport}`, { responseType: 'blob' });
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `intern_report_${internIdToReport}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      notification.success({ message: 'PDF Report Generated and Downloaded!' });
+    } catch (err: any) {
+      // if server returned JSON error as blob
+      if (err.response && err.response.data instanceof Blob && err.response.data.type === 'application/json') {
+        const text = await err.response.data.text();
+        const json = JSON.parse(text);
+        notification.error({ message: `Report Failed (Status ${err.response.status})`, description: json.message || '' });
+      } else {
+        notification.error({ message: 'PDF Generation Failed', description: err.message || '' });
+      }
+    } finally {
+      setIsGeneratingPdf(false);
+      notification.destroy();
+    }
+  };
+
+  /* ---------- Deletion ---------- */
+  const handleDelete = async (internId: string) => {
+    try {
+      await api.delete(`/api/users/${internId}`);
+      notification.success({ message: 'Intern deleted successfully.' });
+      fetchDashboardData();
+    } catch (err: any) {
       let errorMessage = 'Deletion Failed.';
-      if (isAxiosError(error) && error.response) {
-        errorMessage = `Error: ${error.response.status} - ${error.response.data?.message || error.response.data?.error || error.response.statusText}`;
-        if (error.response.status === 500 && (errorMessage.includes('constraint') || errorMessage.includes('foreign key'))) {
-          errorMessage += ' Cannot delete. Intern might be assigned to projects or have evaluations. Remove assignments first.';
-        }
+      if (isAxiosError(err) && err.response) {
+        errorMessage =
+          err.response.data?.message || err.response.data?.error || `${err.response.status} ${err.response.statusText}`;
       }
       notification.error({ message: 'Deletion Failed', description: errorMessage });
     }
   };
-    
-  // 1.2 Handle PDF Report Generation
- const handleGeneratePdfReport = async (values: { internIdForPdfReport: string }) => {
-    const internIdToReport = values.internIdForPdfReport; // Get intern ID from the form
-    if (!internIdToReport) {
-      notification.error({ message: 'Please select an intern for the report.' });
-      return;
-    }
-    setIsGeneratingPdf(true);
-    notification.info({ message: 'Generating PDF report...', duration: 0 }); // Show indefinite loading
 
-    try {
-      // The backend endpoint streams the PDF
-      const response = await api.get(`/api/reports/final-packet/${internIdToReport}`, { // CRITICAL: Ensure `/api/` prefix
-        responseType: 'blob', // IMPORTANT: Expect binary data (a Blob)
-      });
+  /* ---------- Render protection ---------- */
+  if (status === 'loading' || (status === 'authenticated' && loading)) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
 
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const url = window.URL.createObjectURL(blob); // Create a temporary URL for the Blob
-      const a = document.createElement('a'); // Create a temporary anchor tag
-      a.href = url;
-      a.download = `intern_report_${internIdToReport}.pdf`; // Suggested filename
-      document.body.appendChild(a);
-      a.click(); // Programmatically click the link to trigger download
-      window.URL.revokeObjectURL(url); // Clean up the temporary URL
-      document.body.removeChild(a); // Clean up the anchor tag
+  if (status === 'unauthenticated' || (session && role !== 'HR')) {
+    return (
+      <MainLayout>
+        <Result status="403" title="Access Denied" subTitle="You do not have permission to view the HR Dashboard." />
+      </MainLayout>
+    );
+  }
 
-      notification.success({ message: 'PDF Report Generated and Downloaded!' });
+  /* ---------- Metrics ---------- */
+  const metricsData = summary || {
+    totalInterns: interns.length,
+    activeProjects: 0,
+    pendingEvaluations: 0,
+    totalMentors: 0,
+  };
+  metricsData.totalInterns = interns.length;
 
-    } catch (error: any) {
-        
-        // 🔥 CRITICAL FIX: Manually read the JSON error message if the response is not a PDF (4xx/5xx status)
-        if (error.response && error.response.data instanceof Blob && error.response.data.type === "application/json") {
-            const errorJson = await error.response.data.text();
-            const errorObject = JSON.parse(errorJson);
-            
-            console.error("PDF generation failed:", errorObject);
-            
-            notification.error({ 
-                message: `Report Failed (Status ${error.response.status})`, 
-                description: errorObject.message || 'Missing required intern data (GitHub/Evaluations).' 
-            });
-            
-        } else {
-            // Handle network or non-JSON errors
-            notification.error({ message: 'PDF Generation Failed', description: error.message });
-        }
-        
-    } finally {
-      setIsGeneratingPdf(false);
-      notification.destroy();
-    }
-  };
-
-  // 1.3 --- FUNCTION TO FETCH ALL DASHBOARD DATA ---
-  const fetchDashboardData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    let isMounted = true;
-    let errors: string[] = [];
-
-     const requests = [
-      api.get('/api/analytics/summary'), // CRITICAL: Ensure `/api/` prefix
-      api.get('/api/projects'),        // CRITICAL: Ensure `/api/` prefix
-      api.get('/api/evaluations'),     // CRITICAL: Ensure `/api/` prefix
-      api.get('/api/users/interns'),   // CRITICAL: Ensure `/api/` prefix
-      api.get('/api/analytics/interns-at-risk'), // CRITICAL: Ensure `/api/` prefix
-    ];
-
-    const results = await Promise.allSettled(requests);
-
-    if (!isMounted) return;
-
-    // Handle results (CRITICAL: Ensure errors are collected and data is set)
-     if (results[0].status === 'fulfilled') { setSummary(results[0].value.data); } else { errors.push(`Failed to load summary data. Error: ${isAxiosError(results[0].reason) ? results[0].reason.response?.status + " - " + (results[0].reason.response?.data?.message || results[0].reason.response?.data?.error || results[0].reason.message) : results[0].reason}`); console.error('Summary API Error:', results[0].reason); }
-    if (results[1].status === 'fulfilled') { setProjects((results[1].value as any).data); } else { errors.push(`Failed to load project data. Error: ${isAxiosError(results[1].reason) ? results[1].reason.response?.status + " - " + (results[1].reason.response?.data?.message || results[1].reason.response?.data?.error || results[1].reason.message) : results[1].reason}`); console.error('Projects API Error:', results[1].reason); }
-    if (results[2].status === 'fulfilled') { setEvaluations((results[2].value as any).data); } else { errors.push(`Failed to load evaluation data. Error: ${isAxiosError(results[2].reason) ? results[2].reason.response?.status + " - " + (results[2].reason.response?.data?.message || results[2].reason.response?.data?.error || results[2].reason.message) : results[2].reason}`); console.error('Evaluations API Error:', results[2].reason); }
-    if (results[3].status === 'fulfilled') { setInterns((results[3].value as any).data); } else { errors.push(`Failed to load intern list. Error: ${isAxiosError(results[3].reason) ? results[3].reason.response?.status + " - " + (results[3].reason.response?.data?.message || results[3].reason.response?.data?.error || results[3].reason.message) : results[3].reason}`); console.error('Interns API Error:', results[3].reason); }
-    if (results[4].status === 'fulfilled') { setInternsAtRiskData((results[4].value as any).data); } else { errors.push(`Failed to load at-risk interns. Error: ${isAxiosError(results[4].reason) ? results[4].reason.response?.status + " - " + (results[4].reason.response?.data?.message || results[4].reason.response?.data?.error || results[4].reason.message) : results[4].reason}`); console.error('At-Risk Interns API Error:', results[4].reason); }
-
-
-    if (errors.length > 0) { setError(errors.join('\n')); }
-    setLoading(false);
-
-    return () => { isMounted = false; };
-  }, []);
-
-  // Fetch all data when the session is available and user is HR
-  useEffect(() => {
-    if (status === 'authenticated' && isHR) {
-      fetchDashboardData();
-    } else if (status === 'authenticated' && role && !isHR) {
-      notification.error({ message: 'Access Denied', description: 'Redirecting to appropriate dashboard.' });
-      router.push('/');
-    }
-  }, [session, role, status, isHR, fetchDashboardData, router]);
-
-
-// --- FUNCTION TO CREATE A NEW INTERN (Called from Modal) ---
- const handleCreateIntern = async (submitEventData: any) => {
-let valuesToSend: any;
- try {
-valuesToSend = await internForm.validateFields();
- await api.post('/api/users/intern', {
-firstName: valuesToSend.firstName, 
-            lastName: valuesToSend.lastName,
-            email: valuesToSend.email,
-            password: valuesToSend.password,
-            role: 'INTERN' 
-        });
-notification.success({ message: 'Intern Onboarded', description: `Successfully created intern ${valuesToSend.firstName}.` });
-        internForm.resetFields(); 
-        setIsInternModalVisible(false); 
-        await fetchDashboardData();
-    } catch (err: any) {
-      console.error('Onboarding Failed:', err.response?.data || err);
-     const apiMessage = err.response?.data?.message || err.message;
-
-        if (err.errorFields && err.errorFields.length > 0) {
-             notification.error({ message: 'Validation Error', description: 'Please type the required fields manually to avoid autofill bugs.' });
-        } else {
-             notification.error({ message: 'Onboarding Failed', description: apiMessage || 'Server communication error.' });
-        }
-    }
-};
-
- // --- FUNCTION TO CREATE A NEW CHECKLIST TEMPLATE (Called from Modal) ---
- const handleCreateTemplate = async (submitEventData: any) => {
-  let valuesToSend: any;
- try {
-  valuesToSend = await templateForm.validateFields();
- const response = await api.post('/api/checklists/templates', {
- // Use the validated data object here
- name: valuesToSend.name,
- description: valuesToSend.description,
- 
- items: valuesToSend.items || [] 
- });
-
-      notification.success({ message: 'Template Created', description: `Successfully created template "${response.data.name}".` });
-     templateForm.resetFields();
-      setIsTemplateModalVisible(false);
-      fetchDashboardData(); // Refresh dashboard (implicitly updates linked templates)
-
-    } catch (err: any) {
- console.error('Operation Failed:', err.response?.data || err);
-        // Handle validation errors (Ant Design throws the validation error object directly)
-        if (err.errorFields) {
-            notification.error({ message: 'Validation Failed', description: 'Please check the required fields.' });
-        } else {
-             notification.error({
- message: 'Operation Failed',
- description: err.response?.data?.message || err.message || 'Server error.',
- });
-        }
- }
- };
-
-  // --- RENDER PROTECTION ---
-  if (status === 'loading' || (status === 'authenticated' && loading)) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <Spin size="large" />
-      </div>
-    );
-  }
-
-  if (status === 'unauthenticated' || (session && role !== 'HR')) {
-    return (
-      <MainLayout>
-        <Result
-          status="403"
-          title="Access Denied"
-          subTitle="You do not have permission to view the HR Dashboard."
-        />
-      </MainLayout>
-    );
-  }
-
-  // Use default values for metrics if summary is null
-  const metricsData = summary || {
-    totalInterns: interns.length, // Ensure metric reflects actual fetched data
-    activeProjects: 0,
-    pendingEvaluations: 0,
-    totalMentors: 0,
-  };
-    // CRITICAL: Ensure totalInterns reflects the fetched array length if summary is missing
-    metricsData.totalInterns = interns.length;
-
-
-  // --- RENDER ---
-  return (
+  /* ---------- JSX ---------- */
+  return (
     <MainLayout>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Title level={2}>HR Manager Dashboard</Title>
 
-        {/* Display aggregated errors for dashboard data loading */}
         {error && (
           <Alert
             message="Error Loading Dashboard Data"
@@ -356,95 +539,58 @@ notification.success({ message: 'Intern Onboarded', description: `Successfully c
           />
         )}
 
-        {/* 1. Quick Metrics Cards */}
         <Row gutter={[24, 24]}>
           <Col xs={24} sm={12} md={12} lg={6}>
             <Card hoverable>
-              <Statistic
-                title="Total Interns"
-                value={metricsData.totalInterns}
-                prefix={<UserOutlined style={{ color: '#1890ff' }} />}
-              />
+              <Statistic title="Total Interns" value={metricsData.totalInterns} prefix={<UserOutlined style={{ color: '#1890ff' }} />} />
             </Card>
           </Col>
+
           <Col xs={24} sm={12} md={12} lg={6}>
             <Card hoverable>
-              <Statistic
-                title="Active Projects"
-                value={metricsData.activeProjects}
-                prefix={<ContainerOutlined style={{ color: '#52c41a' }} />}
-              />
+              <Statistic title="Active Projects" value={metricsData.activeProjects} prefix={<ContainerOutlined style={{ color: '#52c41a' }} />} />
             </Card>
           </Col>
+
           <Col xs={24} sm={12} md={12} lg={6}>
             <Card hoverable>
-              <Statistic
-                title="Pending Evals"
-                value={metricsData.pendingEvaluations}
-                prefix={<CheckCircleOutlined style={{ color: '#faad14' }} />}
-              />
+              <Statistic title="Pending Evals" value={metricsData.pendingEvaluations} prefix={<CheckCircleOutlined style={{ color: '#faad14' }} />} />
             </Card>
           </Col>
+
           <Col xs={24} sm={12} md={12} lg={6}>
             <Card hoverable>
-              <Statistic
-                title="Total Mentors"
-                value={metricsData.totalMentors || 0}
-                prefix={<TeamOutlined style={{ color: '#eb2f96' }} />}
-              />
+              <Statistic title="Total Mentors" value={metricsData.totalMentors || 0} prefix={<TeamOutlined style={{ color: '#eb2f96' }} />} />
             </Card>
           </Col>
         </Row>
 
-        {/* 2. Main Action Buttons */}
         <Card>
           <Space wrap>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => { form.resetFields(); setIsInternModalVisible(true); }}
-            >
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => { internForm.resetFields(); setIsInternModalVisible(true); }}>
               Onboard New Intern
             </Button>
-            <Button
-              icon={<ContainerOutlined />}
-              onClick={() => { form.resetFields(); setIsTemplateModalVisible(true); }}
-            >
-              Create Checklist Template
-            </Button>
-            <Button
-              icon={<EyeOutlined />}
-              onClick={() => router.push('/hr-dashboard/projects-overview')}
-            >
+
+            <Button icon={<EyeOutlined />} onClick={() => router.push('/hr-dashboard/projects-overview')}>
               View All Projects (HR)
             </Button>
-            <Button
-              icon={<EyeOutlined />}
-              onClick={() => router.push('/hr-dashboard/evaluations-report')}
-            >
+
+            <Button icon={<EyeOutlined />} onClick={() => router.push('/hr-dashboard/evaluations-report')}>
               View Evaluations Report (HR)
             </Button>
           </Space>
         </Card>
 
-        {/* 3. Manage Interns Table */}
         <Card title="Manage Interns" variant="outlined" style={{ marginBottom: 24 }}>
-          <Table
-            columns={internManagementColumns} // Uses the corrected columns
-            dataSource={interns}
-            rowKey="id"
-            loading={loading}
-            locale={{ emptyText: 'No interns found.' }}
-          />
+          <Table columns={internManagementColumns} dataSource={interns} rowKey="id" loading={loading} locale={{ emptyText: 'No interns found.' }} />
         </Card>
 
-        {/* --- ADDED FOR HR DASHBOARD ISSUES: Interns Requiring Attention Table (Now uses real data) --- */}
         <Card title="Interns Requiring Attention" variant="outlined" style={{ marginBottom: 24 }}>
           <Paragraph type="secondary">Interns flagged based on overdue tasks or low evaluation scores.</Paragraph>
           <Table
             columns={riskColumns}
-            dataSource={internsAtRiskData} // Now uses fetched data
-            rowKey="key" // Ensure rowKey matches the InternAtRisk interface
+            dataSource={internsAtRiskData}
+            rowKey="key"
             pagination={false}
             size="small"
             loading={loading}
@@ -452,51 +598,43 @@ notification.success({ message: 'Intern Onboarded', description: `Successfully c
           />
         </Card>
 
-        {/* --- ADDED FOR HR DASHBOARD ISSUES: Generate Intern Packet (PDF) - for HR --- */}
         <Card title="Generate Intern Packet (PDF)" style={{ marginBottom: 24 }}>
-            <Paragraph>
-                Generate a comprehensive PDF packet summarizing evaluations and objective metrics for a specific intern.
-            </Paragraph>
-            <Form
-                form={form} // Use the same form instance as other modals/forms
-                layout="vertical"
-                onFinish={handleGeneratePdfReport}
-                style={{ maxWidth: 400 }}
+          <Paragraph>Generate a comprehensive PDF packet summarizing evaluations and objective metrics for a specific intern.</Paragraph>
+          <Form form={form} layout="vertical" onFinish={handleGeneratePdfReport} style={{ maxWidth: 400 }}>
+            <Form.Item
+              name="internIdForPdfReport"
+              label="Select Intern"
+              rules={[{ required: true, message: 'Please select an intern.' }]}
             >
-                <Form.Item
-                    name="internIdForPdfReport" // Unique name for this form item
-                    label="Select Intern"
-                    rules={[{ required: true, message: 'Please select an intern.' }]}
-                >
-                    <Select
-                        placeholder="Choose intern for report"
-                        onChange={value => setSelectedInternForPdfReport(value as string)}
-                        value={selectedInternForPdfReport}
-                        disabled={interns.length === 0 || isGeneratingPdf || loading}
-                        loading={loading} // Indicate loading for dropdown options
-                    >
-                        {interns.map(intern => ( // Use the 'interns' state fetched by fetchDashboardData
-                            <Option key={intern.id} value={intern.id}>{intern.firstName} ${intern.lastName}</Option>
-                        ))}
-                    </Select>
-                </Form.Item>
-                <Form.Item>
-                    <Button
-                        type="primary"
-                        htmlType="submit"
-                        icon={<FilePdfOutlined />}
-                        loading={isGeneratingPdf} // Use specific loading state for PDF generation
-                        disabled={!selectedInternForPdfReport || isGeneratingPdf || loading}
-                    >
-                        Generate Final PDF Report
-                    </Button>
-                </Form.Item>
-            </Form>
+              <Select
+                placeholder="Choose intern for report"
+                onChange={value => setSelectedInternForPdfReport(value as string)}
+                value={selectedInternForPdfReport}
+                disabled={interns.length === 0 || isGeneratingPdf || loading}
+                loading={loading}
+              >
+                {interns.map(intern => (
+                  <Option key={intern.id} value={intern.id}>
+                    {intern.firstName} {intern.lastName}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+
+            <Form.Item>
+              <Button
+                type="primary"
+                htmlType="submit"
+                icon={<FilePdfOutlined />}
+                loading={isGeneratingPdf}
+                disabled={!selectedInternForPdfReport || isGeneratingPdf || loading}
+              >
+                Generate Final PDF Report
+              </Button>
+            </Form.Item>
+          </Form>
         </Card>
-        {/* --- END ADDED FOR HR DASHBOARD ISSUES --- */}
 
-
-        {/* 6. Recent Evaluations Table */}
         <Card title="Recent Evaluations" variant="outlined" style={{ marginBottom: 24 }}>
           <Paragraph type="secondary">Latest performance reviews submitted by mentors.</Paragraph>
           <Table
@@ -512,120 +650,178 @@ notification.success({ message: 'Intern Onboarded', description: `Successfully c
         </Card>
       </Space>
 
-      {/* --- MODAL 1: ONBOARD NEW INTERN --- */}
+      {/* ---------- Intern Onboard Modal ---------- */}
       <Modal
-        title={<Space><UserOutlined />Onboard New Intern</Space>}
-        open={isInternModalVisible}
-        onCancel={() => { setIsInternModalVisible(false); internForm.resetFields(); }}
-        footer={null} destroyOnHidden 
-      >
-        <Form 
-           form={internForm} 
-            layout="vertical" 
-            onFinish={handleCreateIntern} 
-            style={{ marginTop: 24 }}
-            onValuesChange={(changedValues, allValues) => {
-                if (changedValues.password !== undefined || changedValues.email !== undefined) {
-                    internForm.setFieldsValue(changedValues);
-                }
-            }}
-        >
-          {/* CRITICAL FIX: Ensure 'name' properties match backend DTO field names */}
-          <Form.Item name="firstName" label="First Name" rules={[{ required: true, message: 'First name is required' }]}> 
-                <Input placeholder="e.g., Jane" autoComplete="off" /> 
-          </Form.Item>
-          <Form.Item name="lastName" label="Last Name" rules={[{ required: true, message: 'Last name is required' }]}> 
-                <Input placeholder="e.g., Doe" autoComplete="off" /> 
-          </Form.Item>
-          <Form.Item name="email" label="Email" rules={[{ required: true, message: 'Email is required' }, { type: 'email', message: 'Must be a valid email' }]}> 
-                <Input placeholder="e.g., jane.doe@company.com" autoComplete="off" /> 
-          </Form.Item>
-          <Form.Item name="password" label="Initial Password" rules={[{ required: true, message: 'Password is required' }]}> 
-                <Input.Password placeholder="Set an initial password" autoComplete="new-password" /> 
-          </Form.Item>
-          <Form.Item style={{ textAlign: 'right', marginTop: 16 }}>
-            <Space>
-              <Button onClick={() => setIsInternModalVisible(false)}>Cancel</Button>
-              <Button type="primary" htmlType="submit">Create Intern</Button>
-            </Space>
-          </Form.Item>
-        </Form>
-      </Modal>
+        title={<Space><UserOutlined />Onboard New Intern & Assign Checklists</Space>}
+        open={isInternModalVisible}
+        onCancel={() => { setIsInternModalVisible(false); internForm.resetFields(); }}
+        footer={null}
+        destroyOnClose
+      >
+        <Form form={internForm} layout="vertical" onFinish={handleCreateInternWithChecklists} style={{ marginTop: 24 }}>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="firstName" label="First Name" rules={[{ required: true, message: 'First name is required' }]}>
+                <Input placeholder="e.g., Jane" autoComplete="off" />
+              </Form.Item>
+            </Col>
 
+            <Col span={12}>
+              <Form.Item name="lastName" label="Last Name" rules={[{ required: true, message: 'Last name is required' }]}>
+                <Input placeholder="e.g., Doe" autoComplete="off" />
+              </Form.Item>
+            </Col>
+          </Row>
 
-      {/* --- MODAL 2: CREATE CHECKLIST TEMPLATE --- */}
-     <Modal
-        title={<Space><ContainerOutlined />Create New Checklist Template</Space>}
-        open={isTemplateModalVisible}
-        onCancel={() => { setIsTemplateModalVisible(false); templateForm.resetFields(); }} 
-        footer={null} destroyOnHidden
-      >
-              <Form 
-            form={templateForm} 
-            layout="vertical" 
-            onFinish={handleCreateTemplate} 
-            style={{ marginTop: 24 }} 
-            onValuesChange={(changedValues) => {
-                if (changedValues.name !== undefined) {
-                    templateForm.setFieldsValue(changedValues);
-                }
-            }}
-            
-            
-            >
-          <Form.Item 
-                name="name" 
-                label="Template Title" 
-                rules={[{ required: true, message: 'Template title is required' }]}
-            > 
-                <Input 
-                    placeholder="e.g., General Software Onboarding"
-                    onChange={(e) => templateForm.setFieldsValue({ name: e.target.value })} 
-                /> 
-            </Form.Item>
-      <Form.Item 
-                name="description" 
-                label="Description (Optional)"
-            > 
-                {/* FIX 2: Attach onChange to ensure description is captured */}
-                <Input.TextArea 
-                    rows={2} 
-                    placeholder="Briefly describe the purpose of this template"
-                    onChange={(e) => templateForm.setFieldsValue({ description: e.target.value })}
-                /> 
-            </Form.Item>
-          <Form.List name="items">
+          <Form.Item
+            name="email"
+            label="Email"
+            rules={[{ required: true, message: 'Email is required' }, { type: 'email', message: 'Must be a valid email' }]}
+          >
+            <Input placeholder="e.g., jane.doe@company.com" autoComplete="off" />
+          </Form.Item>
+
+          <Form.Item name="password" label="Initial Password" rules={[{ required: true, message: 'Password is required' }]}>
+            <Input.Password placeholder="Set an initial password" autoComplete="new-password" />
+          </Form.Item>
+
+          <Form.Item name="assignedChecklists" label="Assign Existing Checklists" tooltip="Select existing checklists to assign to this intern.">
+            <Select
+              mode="multiple"
+              placeholder="Select existing checklists"
+              optionFilterProp="label"
+              showSearch
+              allowClear
+              options={templates.map(t => ({ label: t.name, value: t.id }))}
+            />
+          </Form.Item>
+
+          {/* Create new templates inline */}
+          <Form.List name="newTemplates">
             {(fields, { add, remove }) => (
               <>
-                <Text strong>Checklist Items:</Text>
-                {fields.map(({ key, name, ...restField }) => (
-                  <Space key={key} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
-                    <Form.Item 
-                    {...restField}
-                     name={[name, 'title']} 
-                     rules={[{ required: true, message: 'Item title is required' }]} 
-                     style={{ flexGrow: 1 }}> 
-                     <Input placeholder="e.g., Complete HR paperwork"
-                     onBlur={(e) => templateForm.setFieldValue(['items', name, 'title'], e.target.value)}
-                     
-                     /> </Form.Item>
-                    
-                    <Button type="text" danger onClick={() => remove(name)}> <PlusOutlined style={{transform: 'rotate(45deg)'}} /> </Button>
-                
-                  </Space>
+              
+                <Text strong>Create New Checklist Template(s) (Optional)</Text>
+                {fields.map(({ key, name, ...restField }, idx) => (
+                  <Card key={key} size="small" style={{ marginBottom: 12 }}>
+                    <Space align="baseline" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <Text strong>Template #{idx + 1}</Text>
+                      <Button type="text" danger onClick={() => remove(name)}>Remove Template</Button>
+                    </Space>
+
+                    <Form.Item {...restField} name={[name, 'name']} label="Template Title" rules={[{ required: true, message: 'Template title is required' }]}>
+                      <Input placeholder="e.g., Software Onboarding" />
+                    </Form.Item>
+
+                    <Form.Item {...restField} name={[name, 'description']} label="Description (Optional)">
+                      <TextArea rows={2} placeholder="Briefly describe the purpose of this template" />
+                    </Form.Item>
+
+                    <Form.List name={[name, 'items']} rules={[{ validator: async (_, items) => { if (!items || items.length < 1) return Promise.reject(new Error('Each checklist template must have at least one item.')); } }]}>
+                      {(itemFields, { add: addItem, remove: removeItem }) => (
+                        <>
+                          <Text>Checklist Items:</Text>
+                          {itemFields.map(({ key: itemKey, name: itemName, ...itemRestField }) => (
+                            <Space key={itemKey} style={{ display: 'flex', marginBottom: 8 }} align="baseline">
+                              <Form.Item {...itemRestField} name={[itemName, 'title']} rules={[{ required: true, message: 'Item title is required' }]} style={{ flexGrow: 1 }}>
+                                <Input placeholder="e.g., Complete HR paperwork" />
+                              </Form.Item>
+                              <Button type="text" danger onClick={() => removeItem(itemName)}>
+                                <PlusOutlined style={{ transform: 'rotate(45deg)' }} />
+                              </Button>
+                            </Space>
+                          ))}
+                          <Form.Item>
+                            <Button type="dashed" block onClick={() => addItem({ title: '' })} icon={<PlusOutlined />}>
+                              Add Item
+                            </Button>
+                          </Form.Item>
+                        </>
+                      )}
+                    </Form.List>
+                  </Card>
                 ))}
-                <Form.Item> <Button type="dashed" onClick={() => add({ title: '' })} block icon={<PlusOutlined />}>Add Item</Button> </Form.Item> {/* ADDED: Default title for new item */}
+                <Form.Item>
+                  <Button type="dashed" block icon={<PlusOutlined />} onClick={() => add({ name: '', description: '', items: [] })}>
+                    Add New Template
+                  </Button>
+                </Form.Item>
               </>
             )}
           </Form.List>
 
           <Form.Item style={{ textAlign: 'right', marginTop: 16 }}>
             <Space>
-              <Button onClick={() => setIsTemplateModalVisible(false)}>Cancel</Button>
-              <Button type="primary" htmlType="submit">Save Template</Button>
+              <Button onClick={() => setIsInternModalVisible(false)}>Cancel</Button>
+              <Button type="primary" htmlType="submit">Create Intern & Assign</Button>
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* ---------- Checklist Modal ---------- */}
+      <Modal
+        title={`Checklists for ${selectedInternName}`}
+        open={isChecklistModalVisible}
+        onCancel={() => { setIsChecklistModalVisible(false); setSelectedInternChecklists([]); setSelectedInternId(null); }}
+        footer={null}
+        width={800}
+        destroyOnClose
+      >
+        {checklistLoading ? (
+          <Spin size="large" style={{ display: 'block', margin: '40px auto' }} />
+        ) : selectedInternChecklists.length === 0 ? (
+          <Empty description="No checklists assigned" />
+        ) : (
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {selectedInternChecklists.map(cl => (
+              <Card
+                key={cl.id}
+                title={<Text strong>{cl.template.title}</Text>}
+                extra={<Tag color={cl.progress === 100 ? 'green' : 'gold'}>{cl.progress ?? 0}% Complete</Tag>}
+              >
+                {cl.template.description && <Text type="secondary">{cl.template.description}</Text>}
+
+                <Progress percent={cl.progress ?? 0} size="small" style={{ marginTop: 12, marginBottom: 12 }} />
+
+                <div style={{ marginBottom: 12 }}>
+                  <Button
+                    type="primary"
+                    size="small"
+                    onClick={() => handleCompleteAllItems(selectedInternId, cl.id)}
+                    disabled={cl.progress === 100 || cl.items.length === 0 || updatingItems.some(id => cl.items.map(i => i.id).includes(id))}
+                  >
+                    Complete All
+                  </Button>
+                </div>
+
+                <List
+                  dataSource={cl.items}
+                  renderItem={item => (
+                    <List.Item>
+                      <Space>
+                        {item.isCompleted ? <CheckCircleFilled style={{ color: 'green' }} /> : <ClockCircleOutlined style={{ color: 'gold' }} />}
+
+                        <Text delete={item.isCompleted}>{item.title}</Text>
+
+                        <Button
+                          type="link"
+                          size="small"
+                          disabled={updatingItems.includes(item.id)}
+                          onClick={() => handleToggleChecklistItem(selectedInternId || '', cl.id, item.id, item.isCompleted)}
+                        >
+                          {item.isCompleted ? 'Mark Incomplete' : 'Mark Complete'}
+                        </Button>
+
+                        {updatingItems.includes(item.id) && <SyncOutlined spin />}
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              </Card>
+            ))}
+          </Space>
+        )}
       </Modal>
     </MainLayout>
   );

@@ -1,6 +1,4 @@
-// src/app/mentor/dashboard.tsx
 "use client";
-
 import React, { useEffect, useState, useCallback } from "react";
 import MainLayout from "../../components/MainLayout";
 import { useRouter } from "next/navigation";
@@ -21,7 +19,6 @@ import {
   Input,
   DatePicker,
   Space,
-  List,
   Alert,
   Result,
 } from "antd";
@@ -61,6 +58,26 @@ interface Intern {
   role: UserRole;
 }
 
+interface Task {
+  id?: string;
+  title: string;
+  dueDate: string;
+}
+
+interface Milestone {
+  id?: string;
+  title: string;
+  tasks: Task[];
+}
+
+interface Project {
+  id: string;
+  title: string;
+  description: string;
+  intern: Intern;
+  milestones: Milestone[];
+}
+
 interface InternInsights {
   github?: {
     totalCommits?: number;
@@ -86,7 +103,15 @@ function getGithubFallbackMessage(intern?: Intern | null) {
 
 const safeNum = (v?: number) => (typeof v === "number" ? v : 0);
 
-function InternSelect({ interns, value, onChange }: { interns: Intern[]; value?: string | null; onChange: (id: string) => void; }) {
+function InternSelect({
+  interns,
+  value,
+  onChange,
+}: {
+  interns: Intern[];
+  value?: string | null;
+  onChange: (id: string) => void;
+}) {
   return (
     <Select
       style={{ width: 220 }}
@@ -105,11 +130,25 @@ function InternSelect({ interns, value, onChange }: { interns: Intern[]; value?:
   );
 }
 
-function GithubSummary({ intern, insights, onFetchData }: { intern?: Intern | null; insights?: InternInsights | null; onFetchData: (internId: string) => void }) {
+function GithubSummary({
+  intern,
+  insights,
+  onFetchData,
+}: {
+  intern?: Intern | null;
+  insights?: InternInsights | null;
+  onFetchData: (internId: string) => void;
+}) {
   const router = useRouter();
   if (!intern) return null;
   const github = insights?.github;
-  const hasGithubData = github && (safeNum(github.totalCommits) > 0 || safeNum(github.totalAdditions) > 0 || safeNum(github.totalDeletions) > 0 || (github.repos && github.repos.length > 0));
+  const hasGithubData =
+    github &&
+    (safeNum(github.totalCommits) > 0 ||
+      safeNum(github.totalAdditions) > 0 ||
+      safeNum(github.totalDeletions) > 0 ||
+      (github.repos && github.repos.length > 0));
+
   if (!hasGithubData) {
     return (
       <Card>
@@ -135,10 +174,12 @@ function GithubSummary({ intern, insights, onFetchData }: { intern?: Intern | nu
       </Card>
     );
   }
+
   const commits = safeNum(github?.totalCommits);
   const additions = safeNum(github?.totalAdditions);
   const deletions = safeNum(github?.totalDeletions);
   const repoCount = github?.repos?.length ?? 0;
+
   return (
     <Card title={<span><GithubOutlined style={{ marginRight: 8 }} /> GitHub Summary</span>}>
       <Paragraph>
@@ -197,10 +238,19 @@ function NlpSummary({ insights }: { insights?: InternInsights | null }) {
   );
 }
 
-function CompareInternsModal({ visible, interns, left, right, data, onClose, onChange }: {
+function CompareInternsModal({
+  visible,
+  interns,
+  left,
+  right,
+  data,
+  onClose,
+  onChange,
+}: {
   visible: boolean;
   interns: Intern[];
-  left?: string | null; right?: string | null;
+  left?: string | null;
+  right?: string | null;
   data?: { left?: InternInsights; right?: InternInsights } | null;
   onClose: () => void;
   onChange: (l: string, r: string) => void;
@@ -244,7 +294,17 @@ function CompareInternsModal({ visible, interns, left, right, data, onClose, onC
   );
 }
 
-function CreateProjectModal({ visible, interns, onClose, onCreate }: { visible: boolean; interns: Intern[]; onClose: () => void; onCreate: (payload: any) => Promise<void> }) {
+function CreateProjectModal({
+  visible,
+  interns,
+  onClose,
+  onCreate,
+}: {
+  visible: boolean;
+  interns: Intern[];
+  onClose: () => void;
+  onCreate: (payload: Omit<Project, 'id'>) => Promise<void>;
+}) {
   const [form] = Form.useForm();
   return (
     <Modal title="Create New Intern Project" open={visible} onCancel={() => { form.resetFields(); onClose(); }} footer={null} width={700} destroyOnClose>
@@ -303,7 +363,7 @@ function CreateProjectModal({ visible, interns, onClose, onCreate }: { visible: 
 export default function MentorDashboardPage() {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
-  const [projects, setProjects] = useState<any[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [interns, setInterns] = useState<Intern[]>([]);
   const [mentorName, setMentorName] = useState('Mentor');
   const [loadingProjects, setLoadingProjects] = useState(true);
@@ -337,27 +397,26 @@ export default function MentorDashboardPage() {
     }
   }, []);
 
-const handleFetchGithubData = useCallback(async (internId: string) => {
-  if (!internId) {
-    notification.error({ message: 'No intern selected to fetch GitHub data.' });
-    return;
-  }
-  notification.info({ message: 'Fetching latest GitHub data...', duration: 0 });
-  try {
-    await api.post(`/github/intern/fetch/${internId}`);
-    notification.success({ message: 'GitHub data fetched successfully!' });
-    fetchInsightsForIntern(internId);
-  } catch (err: any) {
-    console.error('Error fetching GitHub data:', err);
-    notification.error({
-      message: 'Failed to fetch GitHub data',
-      description: err?.response?.data?.message || 'Check intern\'s GitHub username and backend token validity.'
-    });
-  } finally {
-    notification.destroy();
-  }
-}, [fetchInsightsForIntern]);
-
+  const handleFetchGithubData = useCallback(async (internId: string) => {
+    if (!internId) {
+      notification.error({ message: 'No intern selected to fetch GitHub data.' });
+      return;
+    }
+    notification.info({ message: 'Fetching latest GitHub data...', duration: 0 });
+    try {
+      await api.post(`/github/intern/fetch/${internId}`);
+      notification.success({ message: 'GitHub data fetched successfully!' });
+      fetchInsightsForIntern(internId);
+    } catch (err: any) {
+      console.error('Error fetching GitHub data:', err);
+      notification.error({
+        message: 'Failed to fetch GitHub data',
+        description: err?.response?.data?.message || 'Check intern\'s GitHub username and backend token validity.'
+      });
+    } finally {
+      notification.destroy();
+    }
+  }, [fetchInsightsForIntern]);
 
   const fetchProjects = useCallback(async () => {
     if (!mentorId) return;
@@ -445,8 +504,14 @@ const handleFetchGithubData = useCallback(async (internId: string) => {
     }
   };
 
-  const handleCreateProject = async (payload: any) => {
-    payload.milestones = payload.milestones?.map((m: any) => ({ ...m, tasks: m.tasks?.map((t: any) => ({ ...t, dueDate: t.dueDate ? dayjs(t.dueDate).toISOString() : null })) })) || [];
+  const handleCreateProject = async (payload: Omit<Project, 'id'>) => {
+    payload.milestones = payload.milestones?.map((m) => ({
+      ...m,
+      tasks: m.tasks?.map((t) => ({
+        ...t,
+        dueDate: t.dueDate ? dayjs(t.dueDate).toISOString() : null,
+      })),
+    })) || [];
     try {
       await api.post('/projects', payload);
       notification.success({ message: 'Project created' });
@@ -454,7 +519,10 @@ const handleFetchGithubData = useCallback(async (internId: string) => {
       fetchProjects();
     } catch (err: any) {
       console.error('create project failed', err);
-      notification.error({ message: 'Project creation failed', description: err?.response?.data?.message || err.message });
+      notification.error({
+        message: 'Project creation failed',
+        description: err?.response?.data?.message || err.message,
+      });
     }
   };
 

@@ -1,17 +1,37 @@
-'use client';
+"use client";
 import MainLayout from '../../components/MainLayout';
-import { Typography, Tabs, Space, Table, Form, Input, Button, notification, Progress, Popconfirm, Tag } from 'antd';
-import { UserAddOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
-import { useState, useEffect } from 'react';
+import {
+  Typography,
+  Tabs,
+  Space,
+  Table,
+  Form,
+  Input,
+  Button,
+  notification,
+  Progress,
+  Popconfirm,
+  Tag,
+  Select,
+  Spin,
+  Alert
+} from 'antd';
+import {
+  UserAddOutlined,
+  DeleteOutlined,
+  EyeOutlined,
+  SearchOutlined,
+  FilterOutlined
+} from '@ant-design/icons';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../../../lib/api';
 import { useSession } from 'next-auth/react';
 import { isAxiosError } from 'axios';
 import { useRouter } from 'next/navigation';
-import type { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
-import type { TabsProps } from 'antd';
-import { UserRole } from '../../../common/enums/user-role.enum'; // Import UserRole
+import { UserRole } from '../../../common/enums/user-role.enum';
 
 const { Title, Text } = Typography;
+const { Option } = Select;
 
 interface InternSummary {
   id: string;
@@ -21,32 +41,39 @@ interface InternSummary {
   role: UserRole;
   tasksTotal: number;
   tasksDone: number;
-  checklistStatus: string; // e.g., 'Complete', 'In Progress', 'Not Started'
+  checklistStatus: 'Complete' | 'In Progress' | 'Not Started';
 }
 
-// --- Component 1: Add Intern Form ---
+// --- Add Intern Form ---
 const AddInternForm = ({ onSuccess }: { onSuccess: () => void }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
   const onFinish = async (values: any) => {
     setLoading(true);
-    const payload = { ...values, role: UserRole.INTERN };
-
     try {
-      await api.post('/users/intern', payload); // CRITICAL FIX: Correct endpoint
-      notification.success({ message: 'Intern Onboarded', description: `${values.firstName} ${values.lastName} added and checklist automatically assigned.` });
+      const payload = {
+        ...values,
+        role: UserRole.INTERN
+      };
+      await api.post('/users/intern', payload);
+      notification.success({
+        message: 'Intern Onboarded',
+        description: `${values.firstName} ${values.lastName} added and checklist automatically assigned.`
+      });
       form.resetFields();
       onSuccess();
     } catch (error: any) {
       let errorMessage = 'An unexpected error occurred.';
       if (isAxiosError(error) && error.response) {
         errorMessage = Array.isArray(error.response.data.message)
-            ? error.response.data.message.join('; ')
-            : error.response.data.message || error.response.data.error || error.message;
+          ? error.response.data.message.join('; ')
+          : error.response.data.message || error.response.data.error || error.message;
       }
-      console.error("Onboarding API Error:", error);
-      notification.error({ message: 'Onboarding Failed', description: errorMessage });
+      notification.error({
+        message: 'Onboarding Failed',
+        description: errorMessage
+      });
     } finally {
       setLoading(false);
     }
@@ -54,23 +81,55 @@ const AddInternForm = ({ onSuccess }: { onSuccess: () => void }) => {
 
   return (
     <Form form={form} layout="vertical" onFinish={onFinish} style={{ maxWidth: 600 }}>
-      <Form.Item name="email" label="Email (Login)" rules={[{ required: true, message: 'Please input email!' }, { type: 'email', message: 'Please enter a valid email!' }]}>
+      <Form.Item
+        name="email"
+        label="Email (Login)"
+        rules={[
+          { required: true, message: 'Please input email!' },
+          { type: 'email', message: 'Please enter a valid email!' }
+        ]}
+      >
         <Input placeholder="intern@company.com" />
       </Form.Item>
-      <Form.Item name="password" label="Temp Password" rules={[{ required: true, message: 'Please input password!' }, { min: 8, message: 'Password must be at least 8 characters long!' }]}>
+
+      <Form.Item
+        name="password"
+        label="Temp Password"
+        rules={[
+          { required: true, message: 'Please input password!' },
+          { min: 8, message: 'Password must be at least 8 characters long!' }
+        ]}
+      >
         <Input.Password placeholder="password123" />
       </Form.Item>
-      <Form.Item name="firstName" label="First Name" rules={[{ required: true, message: 'Please input first name!' }]}>
+
+      <Form.Item
+        name="firstName"
+        label="First Name"
+        rules={[{ required: true, message: 'Please input first name!' }]}
+      >
         <Input placeholder="John" />
       </Form.Item>
-      <Form.Item name="lastName" label="Last Name" rules={[{ required: true, message: 'Please input last name!' }]}>
+
+      <Form.Item
+        name="lastName"
+        label="Last Name"
+        rules={[{ required: true, message: 'Please input last name!' }]}
+      >
         <Input placeholder="Doe" />
       </Form.Item>
+
       <Form.Item name="role" label="Role" initialValue={UserRole.INTERN}>
-          <Input disabled value="Intern"/>
+        <Input disabled value={UserRole.INTERN} />
       </Form.Item>
+
       <Form.Item>
-        <Button type="primary" htmlType="submit" icon={<UserAddOutlined />} loading={loading}>
+        <Button
+          type="primary"
+          htmlType="submit"
+          icon={<UserAddOutlined />}
+          loading={loading}
+        >
           Create Intern & Assign Checklist
         </Button>
       </Form.Item>
@@ -78,28 +137,69 @@ const AddInternForm = ({ onSuccess }: { onSuccess: () => void }) => {
   );
 };
 
-// --- Component 2: Intern Overview Table ---
+// --- Intern Overview Table ---
 const InternOverviewTable = ({
   interns,
   loading,
   handleDelete,
-  router
+  router,
+  onSearch,
+  onStatusFilterChange
 }: {
-  interns: InternSummary[]; // Use the defined interface
+  interns: InternSummary[];
   loading: boolean;
   handleDelete: (id: string) => Promise<void>;
-  router: AppRouterInstance;
+  router: any;
+  onSearch: (value: string) => void;
+  onStatusFilterChange: (value: string[]) => void;
 }) => {
+  const [searchText, setSearchText] = useState('');
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
+
+  const handleSearch = (value: string) => {
+    setSearchText(value);
+    onSearch(value);
+  };
+
+  const handleStatusFilterChange = (values: string[]) => {
+    setStatusFilters(values);
+    onStatusFilterChange(values);
+  };
 
   const columns = [
-    { title: 'Name', dataIndex: 'firstName', key: 'name', render: (text: string, record: InternSummary) => <a onClick={() => router.push(`/hr-dashboard/interns/${record.id}`)}>{text} {record.lastName}</a> },
-    { title: 'Email', dataIndex: 'email', key: 'email' },
+    {
+      title: 'Name',
+      dataIndex: 'firstName',
+      key: 'name',
+      render: (text: string, record: InternSummary) => (
+        <a onClick={() => router.push(`/hr-dashboard/interns/${record.id}`)}>
+          {text} {record.lastName}
+        </a>
+      ),
+      sorter: (a: InternSummary, b: InternSummary) =>
+        `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`),
+    },
+    {
+      title: 'Email',
+      dataIndex: 'email',
+      key: 'email',
+      sorter: (a: InternSummary, b: InternSummary) => a.email.localeCompare(b.email),
+    },
     {
       title: 'Checklist Status',
       dataIndex: 'checklistStatus',
       key: 'checklistStatus',
+      filters: [
+        { text: 'Complete', value: 'Complete' },
+        { text: 'In Progress', value: 'In Progress' },
+        { text: 'Not Started', value: 'Not Started' },
+      ],
+      filteredValue: statusFilters,
+      onFilter: (value: any, record: InternSummary) => record.checklistStatus === value,
       render: (status: string) => (
-        <Tag color={status === 'Complete' ? 'green' : (status === 'Not Started' ? 'default' : 'blue')}>{status || 'N/A'}</Tag>
+        <Tag color={status === 'Complete' ? 'green' : status === 'Not Started' ? 'default' : 'blue'}>
+          {status || 'N/A'}
+        </Tag>
       )
     },
     {
@@ -110,18 +210,35 @@ const InternOverviewTable = ({
         const total = record.tasksTotal || 0;
         const done = tasksDone || 0;
         const percent = total > 0 ? (done / total) * 100 : 0;
-        return <Progress percent={Math.round(percent)} size="small" status={percent < 50 && total > 0 ? 'exception' : (percent === 100 ? 'success' : 'active')} />
+        return (
+          <Progress
+            percent={Math.round(percent)}
+            size="small"
+            status={percent < 50 ? 'exception' : percent === 100 ? 'success' : 'active'}
+            format={() => `${done}/${total}`}
+          />
+        );
+      },
+      sorter: (a: InternSummary, b: InternSummary) => {
+        const aPercent = (a.tasksDone / (a.tasksTotal || 1)) * 100;
+        const bPercent = (b.tasksDone / (b.tasksTotal || 1)) * 100;
+        return aPercent - bPercent;
       }
     },
     {
-      title: 'Actions', key: 'action', render: (_: string, record: InternSummary) => (
+      title: 'Actions',
+      key: 'action',
+      render: (_: string, record: InternSummary) => (
         <Space>
           <Button
             icon={<EyeOutlined />}
             size="small"
-            onClick={() => router.push(`/hr-dashboard/interns/${record.id}`)} // CRITICAL FIX: Link to /hr-dashboard/interns/[id]
+            onClick={() => router.push(`/hr-dashboard/interns/${record.id}`)}
           />
-          <Popconfirm title="Are you sure you want to delete this intern? This action cannot be undone." onConfirm={() => handleDelete(record.id)}>
+          <Popconfirm
+            title={`Are you sure you want to delete ${record.firstName} ${record.lastName}?`}
+            onConfirm={() => handleDelete(record.id)}
+          >
             <Button icon={<DeleteOutlined />} danger size="small" />
           </Popconfirm>
         </Space>
@@ -129,54 +246,102 @@ const InternOverviewTable = ({
     },
   ];
 
-  return <Table columns={columns} dataSource={interns} loading={loading} rowKey="id" pagination={{ pageSize: 10 }} />;
+  return (
+    <>
+      <Space style={{ marginBottom: 16 }}>
+        <Input
+          placeholder="Search by name or email"
+          prefix={<SearchOutlined />}
+          onChange={(e) => handleSearch(e.target.value)}
+          style={{ width: 300 }}
+          allowClear
+        />
+        <Select
+          mode="multiple"
+          placeholder="Filter by status"
+          style={{ width: 200 }}
+          allowClear
+          onChange={handleStatusFilterChange}
+          maxTagCount="responsive"
+          optionFilterProp="children"
+          filterOption={(input, option) =>
+            (option?.children as unknown as string).toLowerCase().includes(input.toLowerCase())
+          }
+        >
+          <Option value="Complete">Complete</Option>
+          <Option value="In Progress">In Progress</Option>
+          <Option value="Not Started">Not Started</Option>
+        </Select>
+      </Space>
+
+      <Table
+        columns={columns}
+        dataSource={interns}
+        loading={loading}
+        rowKey="id"
+        pagination={{ pageSize: 10 }}
+        onChange={(pagination, filters, sorter) => {
+          console.log('Table change:', { pagination, filters, sorter });
+        }}
+      />
+    </>
+  );
 };
 
 // --- Main Page Component ---
 export default function ManageInternsPage() {
   const router = useRouter();
-  const [interns, setInterns] = useState<InternSummary[]>([]); // Use the defined interface
+  const [interns, setInterns] = useState<InternSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [statusFilters, setStatusFilters] = useState<string[]>([]);
   const { status } = useSession();
 
-  // Function to fetch the list of interns
-  const fetchInterns = async () => {
+  // Fetch interns with optional search and filter parameters
+  const fetchInterns = useCallback(async () => {
     setLoading(true);
     try {
-        const internsRes = await api.get('/users/interns'); // CRITICAL FIX: Correct endpoint for HR to get intern summaries
-        setInterns(internsRes.data);
+      const params = new URLSearchParams();
+      if (searchText) params.append('search', searchText);
+      if (statusFilters.length > 0) params.append('status', statusFilters.join(','));
 
+      const internsRes = await api.get(`/users/interns?${params.toString()}`);
+      setInterns(internsRes.data);
     } catch (error) {
-        console.error("Failed to fetch interns:", error);
-        notification.error({
-            message: 'Loading Failed',
-            description: isAxiosError(error) ? (error.response?.data?.message || error.message) : 'Could not retrieve intern list.',
-        });
-        setInterns([]);
+      console.error("Failed to fetch interns:", error);
+      notification.error({
+        message: 'Loading Failed',
+        description: isAxiosError(error)
+          ? (error.response?.data?.message || error.message)
+          : 'Could not retrieve intern list.',
+      });
+      setInterns([]);
     } finally {
-        setLoading(false);
+      setLoading(false);
     }
-  };
+  }, [searchText, statusFilters]);
 
   useEffect(() => {
     if (status === 'authenticated') {
-       fetchInterns();
+      fetchInterns();
     }
-  }, [status]); // Only depend on status, fetchInterns is stable via useCallback if it were.
+  }, [status, fetchInterns]);
 
-  // Function to handle deleting an intern
+  // Handle intern deletion
   const handleDelete = async (internId: string) => {
     try {
-      await api.delete(`/users/${internId}`); // CRITICAL FIX: Correct endpoint
+      await api.delete(`/users/${internId}`);
       notification.success({ message: 'Intern deleted successfully.' });
-      fetchInterns(); // Refresh the list
+      fetchInterns();
     } catch (error) {
       let errorMessage = 'Deletion Failed.';
       if (isAxiosError(error) && error.response) {
         errorMessage = Array.isArray(error.response.data.message)
-            ? error.response.data.message.join('; ')
-            : error.response.data.message || error.response.data.error || error.message;
-        if (error.response.status === 500 && (error.response.data.message?.includes('constraint') || error.response.data.error?.includes('constraint'))) {
+          ? error.response.data.message.join('; ')
+          : error.response.data.message || error.response.data.error || error.message;
+        if (error.response.status === 500 &&
+            (error.response.data.message?.includes('constraint') ||
+             error.response.data.error?.includes('constraint'))) {
           errorMessage += ' Cannot delete. Intern might be assigned to projects or have evaluations. Remove assignments first.';
         }
       }
@@ -184,19 +349,24 @@ export default function ManageInternsPage() {
     }
   };
 
-  // Define tab items using the recommended 'items' prop structure
-  const tabItems: TabsProps['items'] = [
+  // Define tab items
+  const tabItems = [
     {
       key: '1',
       label: 'Intern Overview & Reports',
       children: (
         <>
-          <p>This table gives you a real-time status of all interns in the program, including their onboarding checklist progress.</p>
+          <Text type="secondary">
+            This table gives you a real-time status of all interns in the program,
+            including their onboarding checklist progress.
+          </Text>
           <InternOverviewTable
             interns={interns}
             loading={loading}
             handleDelete={handleDelete}
             router={router}
+            onSearch={setSearchText}
+            onStatusFilterChange={setStatusFilters}
           />
         </>
       ),
@@ -216,10 +386,13 @@ export default function ManageInternsPage() {
       label: 'Manage Checklist Templates',
       children: (
         <>
-          <p>Define the reusable blueprints for all intern onboarding processes.</p>
+          <Text type="secondary">
+            Define the reusable blueprints for all intern onboarding processes.
+          </Text>
           <Button
             type="default"
             onClick={() => router.push('/hr-dashboard/checklist-templates')}
+            style={{ marginTop: 16 }}
           >
             Go to Template Editor
           </Button>

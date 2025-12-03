@@ -1,7 +1,5 @@
-// src/app/mentor/interns/[internId]/github/[repoId]/page.tsx
 "use client";
-
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Card,
@@ -10,7 +8,8 @@ import {
   Spin,
   notification,
   Tabs,
-  Alert
+  Alert,
+  Tooltip as AntdTooltip
 } from "antd";
 import {
   LineChart,
@@ -50,40 +49,41 @@ export default function RepoDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  function parseDateAuto(d: string): Date | null {
+  // --- Helper Functions ---
+  const parseDateAuto = useCallback((d: string): Date | null => {
     const parsed = new Date(d);
     return isNaN(parsed.getTime()) ? null : parsed;
-  }
+  }, []);
 
-  useEffect(() => {
+  // --- Data Fetching ---
+  const fetchRepoDetails = useCallback(async () => {
     if (!internId || !repoName) {
       setError('Intern ID or Repository name missing in URL.');
       setLoading(false);
       return;
     }
 
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await api.get<RepoDetails>(
-          `/analytics/github/${internId}/repo/${repoName}`
-        );
-        setRepo(res.data);
-      } catch (err: any) {
-        console.error('Error loading repo details:', err);
-        setError(err?.response?.data?.message || err.message || 'Failed to load repository details.');
-        notification.error({
-          message: "Failed to load repository details",
-          description: err?.response?.data?.message || err.message,
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await api.get<RepoDetails>(
+        `/analytics/github/${internId}/repo/${repoName}`
+      );
+      setRepo(res.data);
+    } catch (err: any) {
+      console.error('Error loading repo details:', err);
+      setError(err?.response?.data?.message || err.message || 'Failed to load repository details.');
+      notification.error({
+        message: "Failed to load repository details",
+        description: err?.response?.data?.message || err.message,
+      });
+    } finally {
+      setLoading(false);
+    }
   }, [internId, repoName]);
 
+  // --- Data Processing ---
   const dailyData = useMemo(() => {
     if (!repo) return [];
     return repo.timeseries.map((p) => {
@@ -93,7 +93,7 @@ export default function RepoDetailsPage() {
         commits: p.commits,
       };
     });
-  }, [repo]);
+  }, [repo, parseDateAuto]);
 
   const weeklyData = useMemo(() => {
     if (!repo) return [];
@@ -111,7 +111,7 @@ export default function RepoDetailsPage() {
     return Object.entries(map)
       .map(([week, commits]) => ({ week, commits }))
       .sort((a, b) => a.week.localeCompare(b.week));
-  }, [repo]);
+  }, [repo, parseDateAuto]);
 
   const monthlyData = useMemo(() => {
     if (!repo) return [];
@@ -129,18 +129,30 @@ export default function RepoDetailsPage() {
         const dateB = new Date(b.month.replace(' ', ' 1, '));
         return dateA.getTime() - dateB.getTime();
       });
-  }, [repo]);
+  }, [repo, parseDateAuto]);
 
   const heatmapData = useMemo(() => {
     if (!repo) return [];
     const maxCommitsPerDay = Math.max(...dailyData.map(d => d.commits), 1);
-    const heatColors = ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"];
     return dailyData.map((day) => ({
       ...day,
       intensity: day.commits / maxCommitsPerDay,
     }));
   }, [dailyData]);
 
+  // --- Effects ---
+  useEffect(() => {
+    fetchRepoDetails();
+  }, [fetchRepoDetails]);
+
+  // --- Render Helpers ---
+  const renderHeatmapTooltip = useCallback((day: { date: string; commits: number }) => (
+    <AntdTooltip title={`${day.date}: ${day.commits} commits`}>
+      <div>{day.date}</div>
+    </AntdTooltip>
+  ), []);
+
+  // --- Loading/Error States ---
   if (loading) {
     return (
       <div style={{ padding: 24, textAlign: 'center' }}>
@@ -189,9 +201,11 @@ export default function RepoDetailsPage() {
     );
   }
 
+  // --- Main Render ---
   return (
     <div style={{ padding: 24 }}>
       <Title level={2}>{repo.name}</Title>
+
       <Card style={{ marginBottom: 16 }}>
         <Text strong>Stars:</Text> {repo.stars} <br />
         <Text strong>Forks:</Text> {repo.forks} <br />
@@ -204,7 +218,9 @@ export default function RepoDetailsPage() {
           Open on GitHub
         </Button>
       </Card>
+
       <Tabs defaultActiveKey="daily">
+        {/* Daily Commits Tab */}
         <TabPane tab="Daily Commits" key="daily">
           <Card>
             <div style={{ width: "100%", height: 300 }}>
@@ -225,6 +241,8 @@ export default function RepoDetailsPage() {
             </div>
           </Card>
         </TabPane>
+
+        {/* Weekly Commits Tab */}
         <TabPane tab="Weekly Commits" key="weekly">
           <Card>
             <div style={{ width: "100%", height: 300 }}>
@@ -243,6 +261,8 @@ export default function RepoDetailsPage() {
             </div>
           </Card>
         </TabPane>
+
+        {/* Monthly Commits Tab */}
         <TabPane tab="Monthly Commits" key="monthly">
           <Card>
             <div style={{ width: "100%", height: 300 }}>
@@ -261,6 +281,8 @@ export default function RepoDetailsPage() {
             </div>
           </Card>
         </TabPane>
+
+        {/* Activity Heatmap Tab */}
         <TabPane tab="Activity Heatmap" key="heatmap">
           <Card>
             <div style={{ display: "flex", gap: 3, flexWrap: "wrap", maxWidth: '100%' }}>
@@ -271,16 +293,19 @@ export default function RepoDetailsPage() {
                   Math.floor(day.intensity * heatColors.length)
                 );
                 return (
-                  <div
+                  <AntdTooltip
                     key={i}
                     title={`${day.date}: ${day.commits} commits`}
-                    style={{
-                      width: 18,
-                      height: 18,
-                      borderRadius: 2,
-                      background: heatColors[colorIndex],
-                    }}
-                  />
+                  >
+                    <div
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: 2,
+                        background: heatColors[colorIndex],
+                      }}
+                    />
+                  </AntdTooltip>
                 );
               })}
             </div>

@@ -1,5 +1,5 @@
-'use client';
-
+"use client";
+import { useState, useEffect, useCallback } from 'react';
 import MainLayout from '@/app/components/MainLayout';
 import {
   Typography,
@@ -28,7 +28,6 @@ import {
   ClockCircleOutlined,
   MinusCircleOutlined,
 } from '@ant-design/icons';
-import { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
@@ -41,6 +40,7 @@ const { Option } = Select;
 
 // ---------- Types ----------
 interface InternBasic {
+  role: UserRole;
   id: string;
   firstName: string;
   lastName: string;
@@ -115,7 +115,6 @@ const ProjectCreationFormContent: React.FC<ProjectCreationFormContentProps> = ({
         </Select>
       </Form.Item>
     </Card>
-
     <Title level={5}>Milestones & Tasks</Title>
     <Form.List name="milestones">
       {(fields, { add, remove }) => (
@@ -129,7 +128,7 @@ const ProjectCreationFormContent: React.FC<ProjectCreationFormContentProps> = ({
                 `Milestone #${milestoneKey + 1}`
               }
               extra={<MinusCircleOutlined onClick={() => remove(milestoneName)} />}
-              style={{ width: '100%' }}
+              style={{ width: '100%', marginBottom: 16 }}
             >
               <Form.Item
                 {...milestoneRestField}
@@ -139,12 +138,11 @@ const ProjectCreationFormContent: React.FC<ProjectCreationFormContentProps> = ({
               >
                 <Input size="small" />
               </Form.Item>
-
               <Form.List name={[milestoneName, 'tasks']}>
                 {(taskFields, { add: addTask, remove: removeTask }) => (
                   <Space direction="vertical" style={{ width: '100%' }}>
                     {taskFields.map(({ key: taskKey, name: taskName, ...taskRestField }) => (
-                      <Row key={taskKey} gutter={8} align="middle">
+                      <Row key={taskKey} gutter={8} align="middle" style={{ marginBottom: 8 }}>
                         <Col span={9}>
                           <Form.Item
                             {...taskRestField}
@@ -183,7 +181,7 @@ const ProjectCreationFormContent: React.FC<ProjectCreationFormContentProps> = ({
                         <Col span={2}>
                           <MinusCircleOutlined
                             onClick={() => removeTask(taskName)}
-                            style={{ fontSize: '16px', color: '#ff4d4f' }}
+                            style={{ fontSize: '16px', color: '#ff4d4f', cursor: 'pointer' }}
                           />
                         </Col>
                       </Row>
@@ -226,7 +224,6 @@ export default function MentorProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm();
   const [interns, setInterns] = useState<InternBasic[]>([]);
@@ -235,36 +232,37 @@ export default function MentorProjectsPage() {
   const mentorId = session?.user?.id;
   const mentorRole = session?.user?.role;
 
-  // ---- Intern List ----
-  const fetchInternsList = async () => {
+  // ---- Fetch Interns ----
+  const fetchInternsList = useCallback(async () => {
     setLoadingInterns(true);
     try {
-      const res = await api.get('/users/interns');
-      setInterns(res.data);
+      const res = await api.get<InternBasic[]>('/users/interns');
+      setInterns(res.data.filter(intern => intern.role === UserRole.INTERN));
     } catch (err) {
-      notification.error({ message: 'Failed to load interns' });
+      notification.error({
+        message: 'Failed to load interns',
+        description: err instanceof AxiosError
+          ? err.response?.data?.message || err.message
+          : 'An error occurred while loading interns'
+      });
     } finally {
       setLoadingInterns(false);
     }
-  };
-
-  useEffect(() => {
-    if (sessionStatus === 'authenticated' && mentorRole === UserRole.MENTOR) {
-      fetchInternsList();
-    }
-  }, [sessionStatus, mentorRole]);
+  }, []);
 
   // ---- Fetch Projects ----
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async () => {
     if (!mentorId) {
       setLoading(false);
       setError('Mentor ID not available. Please log in as a mentor.');
       return;
     }
+
     setLoading(true);
     setError(null);
+
     try {
-      const res = await api.get('/projects/mentor');
+      const res = await api.get<Project[]>('/projects/mentor');
       setProjects(res.data || []);
     } catch (err: any) {
       console.error('Project fetch failed:', err);
@@ -283,22 +281,10 @@ export default function MentorProjectsPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    if (sessionStatus === 'authenticated' && mentorRole === UserRole.MENTOR) {
-      fetchProjects();
-    } else if (
-      sessionStatus === 'unauthenticated' ||
-      (sessionStatus === 'authenticated' && mentorRole !== UserRole.MENTOR)
-    ) {
-      setLoading(false);
-      setError('Access Denied: You must be logged in as a Mentor to view projects.');
-    }
-  }, [mentorId, sessionStatus, mentorRole]);
+  }, [mentorId]);
 
   // ---- Create Project ----
-  const handleProjectCreation = async (values: any) => {
+  const handleProjectCreation = useCallback(async (values: any) => {
     try {
       const payload = {
         ...values,
@@ -306,7 +292,7 @@ export default function MentorProjectsPage() {
           ...m,
           tasks: m.tasks.map((t: any) => ({
             ...t,
-            dueDate: dayjs(t.dueDate).format('YYYY-MM-DD'),
+            dueDate: t.dueDate ? dayjs(t.dueDate).format('YYYY-MM-DD') : null,
           })),
         })),
       };
@@ -322,11 +308,26 @@ export default function MentorProjectsPage() {
         description: error?.response?.data?.message || error.message,
       });
     }
-  };
+  }, [fetchProjects, form]);
 
   // ---- Utility ----
-  const getTotalTasks = (project: Project) =>
-    project.milestones.flatMap((m) => m.tasks || []).length;
+  const getTotalTasks = useCallback((project: Project) =>
+    project.milestones.flatMap((m) => m.tasks || []).length,
+  []);
+
+  // ---- Effects ----
+  useEffect(() => {
+    if (sessionStatus === 'authenticated' && mentorRole === UserRole.MENTOR) {
+      fetchInternsList();
+      fetchProjects();
+    } else if (
+      sessionStatus === 'unauthenticated' ||
+      (sessionStatus === 'authenticated' && mentorRole !== UserRole.MENTOR)
+    ) {
+      setLoading(false);
+      setError('Access Denied: You must be logged in as a Mentor to view projects.');
+    }
+  }, [sessionStatus, mentorRole, fetchInternsList, fetchProjects]);
 
   // ---- Loading State ----
   if (loading || sessionStatus === 'loading') {
@@ -448,7 +449,7 @@ export default function MentorProjectsPage() {
         </Row>
       )}
 
-      {/* ---- Modal ---- */}
+      {/* Create Project Modal */}
       <Modal
         title="Create New Intern Project"
         open={isModalVisible}
@@ -469,7 +470,16 @@ export default function MentorProjectsPage() {
           <ProjectCreationFormContent
             form={form}
             interns={interns}
-            onInternChange={() => {}}
+            onInternChange={(id) => {
+              const milestones = form.getFieldValue('milestones');
+              if (milestones) {
+                const updatedMilestones = milestones.map((m: any) => ({
+                  ...m,
+                  tasks: m.tasks.map((t: any) => ({ ...t, assignedToInternId: id }))
+                }));
+                form.setFieldsValue({ milestones: updatedMilestones });
+              }
+            }}
             loadingInterns={loadingInterns}
           />
           <Form.Item style={{ marginTop: 20 }}>

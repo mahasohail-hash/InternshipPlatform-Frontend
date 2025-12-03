@@ -1,38 +1,53 @@
 'use client';
 
-import React, { useEffect } from 'react';
-import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
-import { Spin } from "antd"; 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { Spin, Button } from 'antd';
+import { Poppins } from 'next/font/google';
+import { LoginButton } from './components/auth/login-button';
+
+// Font at module scope
+const poppins = Poppins({ subsets: ['latin'], weight: ['600'] });
 
 export default function HomePage() {
-  const { data: session, status } = useSession();
   const router = useRouter();
 
+  // Redirect after 3 seconds
   useEffect(() => {
-    if (status === "authenticated") {
-      // Redirect based on role if logged in
-      if (session?.user?.role === "HR") {
-        router.replace("/hr-dashboard");
-      } else if (session?.user?.role === "MENTOR") {
-        router.replace("/mentor/dashboard");
-      } else if (session?.user?.role === "INTERN") {
-        router.replace("/intern/dashboard");
-      } else if (session?.user?.role === "OBSERVER") {
-        router.replace("/observer-dashboard");
-      } else {
-        router.replace("/dashboard"); // Generic dashboard if role not recognized
-      }
-    } else if (status === "unauthenticated") {
-      // Redirect unauthenticated users to login page
-      router.replace("/auth/signin/login");
-    }
-  }, [status, session, router]);
+    const timer = setTimeout(() => {
+      router.push('/auth/login'); // Change to your target page
+    }, 3000);
 
-  // Show loading spinner while checking session status
+    return () => clearTimeout(timer);
+  }, [router]);
+
   return (
-    <div className="font-sans flex items-center justify-center min-h-screen">
-      <Spin size="large" tip="Loading..." />
+    <div
+      className={`flex items-center justify-center min-h-screen w-full ${poppins.className}`}
+      style={{
+        background: 'linear-gradient(to bottom, #38bdf8, #1e3a8a)',
+      }}
+    >
+      <div className="flex flex-col items-center justify-center text-center gap-6">
+        {/* Title */}
+        <h1 className="text-5xl md:text-6xl font-bold text-white drop-shadow-lg">
+          Internship Management Platform
+        </h1>
+
+        {/* Sign In Button */}
+        <div>
+       <LoginButton >
+        <Button
+          type="primary"
+          size="large"
+          className="bg-white text-black font-semibold hover:bg-gray-100"
+        >
+          Sign In
+        </Button>
+        </LoginButton>
+         </div>
+        
+      </div>
     </div>
   );
 }

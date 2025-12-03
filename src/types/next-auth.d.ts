@@ -1,29 +1,53 @@
-import NextAuth, { DefaultSession, DefaultUser } from "next-auth";
-import { DefaultJWT } from "next-auth/jwt";
+// next-auth.d.ts
+import "next-auth";
+import "next-auth/jwt";
 
-interface CustomUser extends DefaultUser {
-    id: string; 
-    email: string;
-    role: 'HR' | 'MENTOR' | 'INTERN' | 'ADMIN' | 'OBSERVER'; 
-    firstName: string; 
-    lastName: string; 
-}
+type UserRole = "HR" | "MENTOR" | "INTERN" | "ADMIN" | "OBSERVER";
 
 declare module "next-auth" {
-    interface Session extends DefaultSession {
-        user: CustomUser; 
-        accessToken: string; 
-    }
-    
-    interface User extends CustomUser {}
+  interface Session {
+    user: {
+      id: string;
+      name: string;
+      email: string;
+      role: UserRole;
+      provider: string; // ✅ Add provider here
+      firstName?: string;
+      lastName?: string;
+      _id?: string;
+      isVerified?: boolean;
+      isAcceptingMessages?: boolean;
+    };
+    accessToken: string;
+  }
+
+  interface User {
+    id: string;
+    name: string;
+    email: string;
+    role: UserRole;
+    provider: string; // ✅ Add provider here
+    firstName?: string;
+    lastName?: string;
+    accessToken: string;
+    _id?: string;
+    isVerified?: boolean;
+    isAcceptingMessages?: boolean;
+  }
 }
 
 declare module "next-auth/jwt" {
-    interface JWT extends DefaultJWT {
-        accessToken: string; 
-        role: string;       
-        id: string;          
-        email: string;
-        name: string;        
-    }
+  interface JWT {
+    id: string;
+    name: string;
+    email: string;
+    role: UserRole;
+    provider: string; // ✅ Add provider here
+    firstName?: string;
+    lastName?: string;
+    accessToken: string;
+    _id?: string;
+    isVerified?: boolean;
+    isAcceptingMessages?: boolean;
+  }
 }

@@ -1,7 +1,5 @@
-// src/app/mentor/interns/[internId]/edit/page.tsx
 "use client";
-
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Card, Form, Input, Button, Spin, notification, Typography, Alert } from 'antd';
 import api from '../../../../../lib/api';
@@ -19,41 +17,43 @@ interface Intern {
 export default function EditInternPage() {
   const params = useParams();
   const router = useRouter();
-  const raw = params?.internId;
-  const internId = Array.isArray(raw) ? raw[0] : raw;
+  const rawInternId = params?.internId;
+  const internId = Array.isArray(rawInternId) ? rawInternId[0] : rawInternId;
+
   const [intern, setIntern] = useState<Intern | null>(null);
   const [loading, setLoading] = useState(true);
   const [verifying, setVerifying] = useState(false);
   const [isValidUsername, setIsValidUsername] = useState<boolean | null>(null);
   const [form] = Form.useForm();
 
-  useEffect(() => {
+  // --- Data Fetching ---
+  const fetchIntern = useCallback(async () => {
     if (!internId) {
       notification.error({ message: 'Intern ID missing' });
       router.push('/mentor');
       return;
     }
-    const fetchIntern = async () => {
-      try {
-        const res = await api.get(`/users/interns/${internId}`);
-        setIntern(res.data);
-        form.setFieldsValue({
-          github_username: res.data.github_username || '',
-        });
-      } catch (err: any) {
-        notification.error({
-          message: 'Failed to load intern data',
-          description: err.response?.data?.message || 'Intern not found',
-        });
-        router.push('/mentor');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchIntern();
+
+    setLoading(true);
+    try {
+      const res = await api.get<Intern>(`/users/interns/${internId}`);
+      setIntern(res.data);
+      form.setFieldsValue({
+        github_username: res.data.github_username || '',
+      });
+    } catch (err: any) {
+      notification.error({
+        message: 'Failed to load intern data',
+        description: err.response?.data?.message || 'Intern not found',
+      });
+      router.push('/mentor');
+    } finally {
+      setLoading(false);
+    }
   }, [internId, form, router]);
 
-  const verifyGitHubUsername = async (username: string) => {
+  // --- GitHub Username Verification ---
+  const verifyGitHubUsername = useCallback(async (username: string) => {
     if (!username) {
       setIsValidUsername(null);
       return;
@@ -61,39 +61,39 @@ export default function EditInternPage() {
 
     setVerifying(true);
     try {
-      const res = await api.post(`/github/verify-username`, { username });
+      const res = await api.post<{ valid: boolean }>('/github/verify-username', { username });
       setIsValidUsername(res.data.valid);
+
       if (!res.data.valid) {
         notification.warning({
           message: 'Invalid GitHub Username',
-          description: 'This GitHub username does not exist or is invalid.'
+          description: 'This GitHub username does not exist or is invalid.',
         });
       } else {
         notification.success({
           message: 'GitHub Username Verified',
-          description: 'This GitHub username is valid.'
+          description: 'This GitHub username is valid.',
         });
       }
     } catch (err: any) {
       setIsValidUsername(false);
       notification.error({
         message: 'Verification Failed',
-        description: err.response?.data?.message || 'Could not verify GitHub username'
+        description: err.response?.data?.message || 'Could not verify GitHub username',
       });
     } finally {
       setVerifying(false);
     }
-  };
+  }, []);
 
-  const handleSubmit = async (values: { github_username: string }) => {
+  // --- Form Submission ---
+  const handleSubmit = useCallback(async (values: { github_username: string }) => {
     try {
-      const res = await api.patch(`/users/interns/${internId}`, values);
+      await api.patch(`/users/interns/${internId}`, values);
       notification.success({
         message: 'GitHub username updated successfully!',
-        description: `Username ${values.github_username} has been set.`
+        description: `Username ${values.github_username} has been set.`,
       });
-
-      // Redirect to GitHub page after successful update
       router.push(`/mentor/interns/${internId}/github`);
     } catch (err: any) {
       notification.error({
@@ -101,20 +101,58 @@ export default function EditInternPage() {
         description: err.response?.data?.message || 'Please try again',
       });
     }
-  };
+  }, [internId, router]);
 
-  if (loading) return <Spin size="large" tip="Loading intern data..." />;
-  if (!intern) return <Text>Intern not found.</Text>;
+  // --- Effects ---
+  useEffect(() => {
+    fetchIntern();
+  }, [fetchIntern]);
+
+  // --- Render ---
+  if (loading) {
+    return (
+      <div style={{ padding: 24, textAlign: 'center' }}>
+        <Spin size="large" tip="Loading intern data..." />
+      </div>
+    );
+  }
+
+  if (!intern) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Alert
+          message="Intern not found"
+          description="The requested intern does not exist."
+          type="error"
+          showIcon
+        />
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: 24 }}>
       <Title level={2}>Edit Intern: {intern.firstName} {intern.lastName}</Title>
+
       <Card style={{ maxWidth: 600 }}>
-        <Form form={form} layout="vertical" onFinish={handleSubmit}>
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleSubmit}
+        >
           <Form.Item
             name="github_username"
             label="GitHub Username"
-            rules={[{ required: true, message: 'Please input the GitHub username!' }]}
+            rules={[
+              { required: true, message: 'Please input the GitHub username!' },
+              {
+                validator: async (_, value) => {
+                  if (value && isValidUsername === false) {
+                    throw new Error('This GitHub username is invalid');
+                  }
+                },
+              },
+            ]}
             help={isValidUsername === false ? "This GitHub username doesn't exist" : ""}
             validateStatus={isValidUsername === false ? "error" : ""}
           >
@@ -123,8 +161,14 @@ export default function EditInternPage() {
               onBlur={(e) => verifyGitHubUsername(e.target.value)}
             />
           </Form.Item>
+
           <Form.Item>
-            <Button type="primary" htmlType="submit" loading={verifying}>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={verifying}
+              disabled={isValidUsername === false}
+            >
               Save Changes
             </Button>
           </Form.Item>

@@ -1,9 +1,7 @@
 "use client";
-
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
-import { Card, Badge, Spin, Row, Col, Typography, notification } from "antd";
-
+import { Card, Badge, Spin, Row, Col, Typography, notification, Empty } from "antd";
 import {
   LineChart,
   Line,
@@ -23,16 +21,62 @@ import api from "@/lib/api";
 
 const { Title, Text } = Typography;
 
+// --- Type Definitions ---
+interface Task {
+  id: string;
+  title: string;
+  summary: string;
+  status: "completed" | "pending";
+}
+
+interface TaskSummary {
+  total: number;
+  completed: number;
+  list: Task[];
+}
+
+interface GitHubRepo {
+  name: string;
+  url: string;
+  description: string;
+  stars: number;
+  forks: number;
+  totalCommits: number;
+  timeseries: Array<{ date: string; commits: number }>;
+}
+
+interface GitHubSummary {
+  repos: GitHubRepo[];
+  totalCommits: number;
+  totalAdditions: number;
+  totalDeletions: number;
+}
+
+interface NlpSummary {
+  sentimentSummary: string;
+  overallSentiment: string;
+  sentimentScore: number;
+  keyThemes: string[];
+}
+
+interface InternInsights {
+  nlp?: NlpSummary;
+  tasks?: TaskSummary;
+  github?: GitHubSummary;
+  evaluations?: any[];
+}
+// --- End Type Definitions ---
+
 export default function InternInsightsPage() {
   const { internId } = useParams<{ internId: string }>();
-
-  const [insights, setInsights] = useState<any>(null);
+  const [insights, setInsights] = useState<InternInsights | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // --- Data Fetching ---
   useEffect(() => {
     async function load() {
       try {
-        const insightsRes = await api.get(`/analytics/summary/${internId}`);
+        const insightsRes = await api.get<InternInsights>(`/analytics/summary/${internId}`);
         setInsights(insightsRes.data);
       } catch (error: any) {
         notification.error({
@@ -43,17 +87,37 @@ export default function InternInsightsPage() {
         setLoading(false);
       }
     }
-
     load();
   }, [internId]);
 
-  if (loading)
+  // --- Data Processing ---
+  const taskData = useMemo(() => {
+    if (!insights?.tasks) return [];
+
+    return [
+      {
+        name: "Completed",
+        value: insights.tasks.completed,
+      },
+      {
+        name: "Pending",
+        value: (insights.tasks.total ?? 0) - (insights.tasks.completed ?? 0),
+      }
+    ];
+  }, [insights]);
+
+  const COLORS = ["#00C49F", "#FF8042"];
+
+  // --- Loading State ---
+  if (loading) {
     return (
       <div style={{ textAlign: "center", padding: 50 }}>
         <Spin size="large" />
       </div>
     );
+  }
 
+  // --- Empty State ---
   if (!insights) {
     return (
       <div style={{ textAlign: "center", padding: 50 }}>
@@ -62,45 +126,44 @@ export default function InternInsightsPage() {
     );
   }
 
-  const taskData = [
-    {
-      name: "Completed",
-      value: insights?.tasks?.completed ?? 0
-    },
-    {
-      name: "Pending",
-      // FIX: Ensure insights?.tasks?.total is also treated as 0 if null/undefined
-      value: (insights?.tasks?.total ?? 0) - (insights?.tasks?.completed ?? 0)
-    }
-  ];
-
-  const COLORS = ["#00C49F", "#FF8042"];
-
+  // --- Main Content ---
   return (
     <div style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 25 }}>
-        Intern Insights Dashboard
-      </h1>
+      <Title level={2}>Intern Insights Dashboard</Title>
 
+      {/* AI Performance Insight */}
       <Card title="AI Performance Insight" style={{ marginBottom: 20 }}>
-        <p>{insights?.nlp?.sentimentSummary || "No AI insight available."}</p>
+        <Text>
+          {insights?.nlp?.sentimentSummary || "No AI insight available."}
+        </Text>
       </Card>
 
+      {/* Evaluation Summary */}
       <Card title="Evaluation Summary" style={{ marginBottom: 20 }}>
-        {/* Placeholder for evaluations, assuming your backend insights service will populate this */}
-        <p>No evaluation available.</p>
+        {insights?.evaluations?.length ? (
+          <ul>
+            {insights.evaluations.map((evaluation, index) => (
+              <li key={index}>
+                <Text strong>{evaluation.type || 'Evaluation'}:</Text> {evaluation.summary || 'No summary'}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Text>No evaluations available.</Text>
+        )}
       </Card>
 
+      {/* Task List and Status Breakdown */}
       <Row gutter={16}>
         <Col xs={24} lg={12}>
           <Card title="Task List" style={{ marginBottom: 20 }}>
             {insights?.tasks?.list?.length ? (
-              insights.tasks.list.map((task: any) => (
+              insights.tasks.list.map((task) => (
                 <Card key={task.id} style={{ marginBottom: 10 }}>
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <div>
-                      <p style={{ fontWeight: 600 }}>{task.title}</p>
-                      <p style={{ color: "#777" }}>{task.summary}</p>
+                      <Text strong>{task.title}</Text>
+                      <Text type="secondary">{task.summary}</Text>
                     </div>
                     <Badge
                       color={task.status === "completed" ? "green" : "blue"}
@@ -110,47 +173,54 @@ export default function InternInsightsPage() {
                 </Card>
               ))
             ) : (
-              <p>No tasks found.</p>
+              <Empty description="No tasks found" />
             )}
           </Card>
         </Col>
 
         <Col xs={24} lg={12}>
           <Card title="Task Status Breakdown">
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
-                <Pie
-                  data={taskData}
-                  dataKey="value"
-                  nameKey="name"
-                  label
-                >
-                  {taskData.map((entry, i) => (
-                    <Cell key={`cell-${i}`} fill={COLORS[i]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
+            {taskData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={taskData}
+                    dataKey="value"
+                    nameKey="name"
+                    label
+                  >
+                    {taskData.map((entry, i) => (
+                      <Cell key={`cell-${i}`} fill={COLORS[i]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <Empty description="No task data available" />
+            )}
           </Card>
         </Col>
       </Row>
 
+      {/* GitHub Contributions */}
       <Card title="GitHub Contributions" style={{ marginTop: 20 }}>
         {insights?.github?.repos?.length ? (
           <Row gutter={16}>
-            {insights.github.repos.map((repo: any) => (
+            {insights.github.repos.map((repo) => (
               <Col xs={24} md={12} lg={8} key={repo.name}>
                 <Card
                   title={repo.name}
                   extra={<a href={repo.url} target="_blank" rel="noopener noreferrer">View</a>}
+                  style={{ marginBottom: 16 }}
                 >
-                  <p>{repo.description || "No description"}</p>
-
-                  <p><strong>Stars:</strong> {repo.stars}</p>
-                  <p><strong>Forks:</strong> {repo.forks}</p>
-                  <p><strong>Total Commits:</strong> {repo.totalCommits}</p>
+                  <Text type="secondary">{repo.description || "No description"}</Text>
+                  <div style={{ margin: "12px 0" }}>
+                    <Text strong>Stars:</Text> {repo.stars}<br />
+                    <Text strong>Forks:</Text> {repo.forks}<br />
+                    <Text strong>Total Commits:</Text> {repo.totalCommits}
+                  </div>
 
                   {/* Commit Line Chart */}
                   {repo.timeseries?.length ? (
@@ -171,14 +241,14 @@ export default function InternInsightsPage() {
                       </ResponsiveContainer>
                     </div>
                   ) : (
-                    <p>No commit history.</p>
+                    <Text type="secondary">No commit history available</Text>
                   )}
                 </Card>
               </Col>
             ))}
           </Row>
         ) : (
-          <p>No GitHub data found.</p>
+          <Empty description="No GitHub data found" />
         )}
       </Card>
     </div>
